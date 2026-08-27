@@ -1,0 +1,267 @@
+/*
+ * GBA view for eMP-gba (T113-S3, 480x480 screen).
+ *
+ * Layout (requirement 1):
+ *   - GBA native resolution is 240x160. It is scaled 2x to 480x320 and
+ *     shown top-center.
+ *   - The remaining 480x160 strip at the bottom holds the on-screen
+ *     GBA controls (D-pad, A/B/L/R, START/SELECT), mirroring the
+ *     control layout of lv_gba_emu.
+ */
+#include "gba_emu.h"
+#include "gba_internal.h"
+
+struct gba_view_s {
+    lv_obj_t* root;
+
+    struct {
+        lv_obj_t* canvas;
+        lv_draw_buf_t draw_buf;
+    } screen;
+
+    /* bottom 480x160 button container */
+    lv_obj_t* btn_area;
+
+    struct {
+        struct {
+            lv_obj_t* cont;
+            lv_obj_t* up;
+            lv_obj_t* down;
+            lv_obj_t* left;
+            lv_obj_t* right;
+        } dir;
+
+        struct {
+            lv_obj_t* cont;
+            lv_obj_t* A;
+            lv_obj_t* B;
+            lv_obj_t* L;
+            lv_obj_t* R;
+        } func;
+
+        struct {
+            lv_obj_t* cont;
+            lv_obj_t* start;
+            lv_obj_t* select;
+        } ctrl;
+    } btn;
+};
+
+typedef struct {
+    const char* txt;
+    lv_align_t align;
+} btn_map_t;
+
+static const btn_map_t btn_dir_map[] = {
+    { LV_SYMBOL_UP, LV_ALIGN_TOP_MID },
+    { LV_SYMBOL_DOWN, LV_ALIGN_BOTTOM_MID },
+    { LV_SYMBOL_LEFT, LV_ALIGN_LEFT_MID },
+    { LV_SYMBOL_RIGHT, LV_ALIGN_RIGHT_MID },
+};
+
+static const btn_map_t btn_func_map[] = {
+    { "A", LV_ALIGN_LEFT_MID },
+    { "B", LV_ALIGN_TOP_MID },
+    { "L", LV_ALIGN_BOTTOM_MID },
+    { "R", LV_ALIGN_RIGHT_MID },
+};
+
+static const btn_map_t btn_ctrl_map[] = {
+    { "START", LV_ALIGN_LEFT_MID },
+    { "SELECT", LV_ALIGN_RIGHT_MID },
+};
+
+static uint32_t btn_read_cb(void* user_data)
+{
+    gba_view_t* view = user_data;
+
+    uint32_t key_state = 0;
+
+#define BTN_STATE_DEF(obj, joypad_id)                  \
+    do {                                               \
+        if (lv_obj_has_state(obj, LV_STATE_PRESSED)) { \
+            key_state |= 1 << joypad_id;               \
+        }                                              \
+    } while (0)
+
+    BTN_STATE_DEF(view->btn.dir.up, GBA_JOYPAD_UP);
+    BTN_STATE_DEF(view->btn.dir.down, GBA_JOYPAD_DOWN);
+    BTN_STATE_DEF(view->btn.dir.left, GBA_JOYPAD_LEFT);
+    BTN_STATE_DEF(view->btn.dir.right, GBA_JOYPAD_RIGHT);
+
+    BTN_STATE_DEF(view->btn.func.A, GBA_JOYPAD_A);
+    BTN_STATE_DEF(view->btn.func.B, GBA_JOYPAD_B);
+    BTN_STATE_DEF(view->btn.func.L, GBA_JOYPAD_L);
+    BTN_STATE_DEF(view->btn.func.R, GBA_JOYPAD_R);
+
+    BTN_STATE_DEF(view->btn.ctrl.select, GBA_JOYPAD_SELECT);
+    BTN_STATE_DEF(view->btn.ctrl.start, GBA_JOYPAD_START);
+
+    return key_state;
+}
+
+static void btn_create(gba_context_t* ctx)
+{
+    gba_view_t* view = ctx->view;
+    lv_obj_t* area = view->btn_area;
+    const lv_coord_t cont_size = 130;
+
+    /* D-pad */
+    {
+        lv_obj_t* cont = lv_obj_create(area);
+        view->btn.dir.cont = cont;
+        lv_obj_set_size(cont, cont_size, cont_size);
+        lv_obj_set_style_pad_all(cont, 0, 0);
+        lv_obj_set_style_border_width(cont, 0, 0);
+        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+
+        lv_obj_t** btn_arr = &view->btn.dir.up;
+        for (int i = 0; i < GBA_ARRAY_SIZE(btn_dir_map); i++) {
+            lv_obj_t* btn = lv_btn_create(cont);
+            btn_arr[i] = btn;
+            lv_obj_align(btn, btn_dir_map[i].align, 0, 0);
+            lv_obj_t* label = lv_label_create(btn);
+            lv_label_set_text(label, btn_dir_map[i].txt);
+            lv_obj_center(label);
+        }
+    }
+
+    /* A / B / L / R */
+    {
+        lv_obj_t* cont = lv_obj_create(area);
+        view->btn.func.cont = cont;
+        lv_obj_set_size(cont, cont_size, cont_size);
+        lv_obj_set_style_pad_all(cont, 0, 0);
+        lv_obj_set_style_border_width(cont, 0, 0);
+        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+
+        lv_obj_t** btn_arr = &view->btn.func.A;
+        for (int i = 0; i < GBA_ARRAY_SIZE(btn_func_map); i++) {
+            lv_obj_t* btn = lv_btn_create(cont);
+            btn_arr[i] = btn;
+            lv_obj_align(btn, btn_func_map[i].align, 0, 0);
+            lv_obj_t* label = lv_label_create(btn);
+            lv_label_set_text(label, btn_func_map[i].txt);
+            lv_obj_center(label);
+        }
+    }
+
+    /* START / SELECT */
+    {
+        lv_obj_t* cont = lv_obj_create(area);
+        view->btn.ctrl.cont = cont;
+        lv_obj_set_size(cont, cont_size, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_row(cont, 10, 0);
+        lv_obj_set_style_pad_all(cont, 0, 0);
+        lv_obj_set_style_border_width(cont, 0, 0);
+        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+
+        lv_obj_t** btn_arr = &view->btn.ctrl.start;
+        for (int i = 0; i < GBA_ARRAY_SIZE(btn_ctrl_map); i++) {
+            lv_obj_t* btn = lv_btn_create(cont);
+            btn_arr[i] = btn;
+            lv_obj_align(btn, btn_ctrl_map[i].align, 0, 0);
+            lv_obj_t* label = lv_label_create(btn);
+            lv_label_set_text(label, btn_ctrl_map[i].txt);
+            lv_obj_center(label);
+        }
+    }
+
+    lv_gba_emu_add_input_read_cb(view->root, btn_read_cb, view);
+}
+
+void gba_view_init(gba_context_t* ctx, lv_obj_t* par, int mode)
+{
+    gba_view_t* view = lv_malloc(sizeof(gba_view_t));
+    LV_ASSERT_MALLOC(view);
+    lv_memzero(view, sizeof(gba_view_t));
+    ctx->view = view;
+
+    lv_obj_t* root = lv_obj_create(par);
+    view->root = root;
+    lv_obj_remove_style_all(root);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
+
+    /* ---- top: GBA screen, native 240x160 scaled 2x -> 480x320 ---- */
+    lv_obj_t* top = lv_obj_create(root);
+    lv_obj_remove_style_all(top);
+    lv_obj_clear_flag(top, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(top, GBA_SCREEN_W, GBA_SCREEN_H / 3 * 2); /* 480 x 320 */
+    lv_obj_align(top, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(top, LV_OPA_TRANSP, 0);
+    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    view->screen.canvas = lv_canvas_create(top);
+    lv_obj_set_size(view->screen.canvas, 240, 160);
+    /* zoom 2x around the canvas center (pivot = 120,80) */
+    lv_obj_set_style_transform_pivot_x(view->screen.canvas, 120, 0);
+    lv_obj_set_style_transform_pivot_y(view->screen.canvas, 80, 0);
+    lv_obj_set_style_transform_zoom(view->screen.canvas, 512, 0);
+    lv_obj_set_style_bg_opa(view->screen.canvas, LV_OPA_COVER, 0);
+
+    if (mode == LV_GBA_VIEW_MODE_VIRTUAL_KEYPAD) {
+        lv_obj_set_style_outline_color(view->screen.canvas,
+                                       lv_theme_get_color_primary(view->screen.canvas), 0);
+        lv_obj_set_style_outline_width(view->screen.canvas, 4, 0);
+    }
+
+    /* ---- bottom: 480x160 control area ---- */
+    if (mode == LV_GBA_VIEW_MODE_VIRTUAL_KEYPAD) {
+        lv_obj_t* bottom = lv_obj_create(root);
+        lv_obj_remove_style_all(bottom);
+        lv_obj_clear_flag(bottom, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(bottom, GBA_SCREEN_W, GBA_SCREEN_H / 3); /* 480 x 160 */
+        lv_obj_align(bottom, LV_ALIGN_BOTTOM_MID, 0, 0);
+        lv_obj_set_style_bg_opa(bottom, LV_OPA_TRANSP, 0);
+        lv_obj_set_flex_flow(bottom, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(bottom, LV_FLEX_ALIGN_SPACE_AROUND,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        view->btn_area = bottom;
+        btn_create(ctx);
+    }
+}
+
+void gba_view_deinit(gba_context_t* ctx)
+{
+    LV_ASSERT_NULL(ctx);
+    LV_ASSERT_NULL(ctx->view);
+    lv_free(ctx->view);
+}
+
+lv_obj_t* gba_view_get_root(gba_context_t* ctx)
+{
+    LV_ASSERT_NULL(ctx);
+    LV_ASSERT_NULL(ctx->view);
+    return ctx->view->root;
+}
+
+void gba_view_invalidate_frame(gba_context_t* ctx)
+{
+    LV_ASSERT_NULL(ctx);
+    LV_ASSERT_NULL(ctx->view);
+    lv_obj_invalidate(ctx->view->screen.canvas);
+}
+
+void gba_view_draw_frame(gba_context_t* ctx, const uint16_t* buf, lv_coord_t width, lv_coord_t height)
+{
+    lv_obj_t* canvas = ctx->view->screen.canvas;
+    if (ctx->view->screen.draw_buf.data != (uint8_t*)buf) {
+        lv_draw_buf_init(
+            &ctx->view->screen.draw_buf,
+            width, height,
+            LV_COLOR_FORMAT_RGB565, ctx->av_info.fb_stride * sizeof(uint16_t),
+            (void*)buf, ctx->av_info.fb_stride * height * sizeof(uint16_t));
+        lv_canvas_set_draw_buf(canvas, &ctx->view->screen.draw_buf);
+        LV_LOG_USER("set direct canvas buffer = %p", (void*)buf);
+    }
+
+#if THREADED_RENDERER
+    ctx->invalidate = true;
+#else
+    gba_view_invalidate_frame(ctx);
+#endif
+}

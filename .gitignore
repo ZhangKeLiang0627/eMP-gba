@@ -1,0 +1,16 @@
+# build
+build/
+
+# objects / libs
+*.o
+*.a
+*.so
+
+# board capture / logs
+*.raw
+*.log
+*.png
+
+# editor
+.vscode/
+.idea/

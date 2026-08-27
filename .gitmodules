@@ -1,0 +1,6 @@
+[submodule "libs/lvgl"]
+	path = libs/lvgl
+	url = https://github.com/lvgl/lvgl.git
+[submodule "libs/vba-next"]
+	path = libs/vba-next
+	url = https://github.com/FASTSHIFT/vba-next.git
