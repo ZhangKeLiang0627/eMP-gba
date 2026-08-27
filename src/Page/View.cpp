@@ -43,6 +43,9 @@ lv_obj_t * View::showEmu(const std::string & romPath, int volume, ExitCb exitCb)
         if (gba_audio_init(gba_emu) < 0) {
             LV_LOG_WARN("ALSA audio init failed (continuing without sound)");
         }
+        else {
+            gba_audio_set_volume(volume);
+        }
     }
 
     return gba_emu;

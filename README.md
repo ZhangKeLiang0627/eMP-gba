@@ -81,6 +81,13 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 - SELECT 长按 2 秒：保存存档并返回菜单
 - 存档：同目录 `.sav` 文件自动读写（ROM 删除时 `.sav` 一并删除）
 
+## 音频（ALSA，板端实测有声）
+
+- GBA 核心输出 32768Hz，但 T113 codec（SUNXI-CODEC）**不支持 32768**，直接喂会被 plug 层重采样导致 DAC 消耗比生产快 ≈46%，播放缓冲持续 underrun（声音断/无声）。`gba_port_audio.c` 在回调内做 32768→48000 线性插值重采样（与系统 dmix 同率），实测无 underrun
+- 应用启动音频时自动打开 codec 的 **Headphone Switch**（板子默认开机静音），无需手动 `amixer cset numid=30 on`
+- `EMP_GBA_VOLUME` 控制软件音量（重采样时缩放），0 关闭音频
+- 若仍无声：确认喇叭/耳机接在板子音频口，`aplay /tmp/tone.wav` 验证链路；听感偏小可 `amixer cset numid=17 7`（Headphone volume 0-7）
+
 ## 实机截图（T113-S3 板端）
 
 | Celeste Classic（可玩平台跳跃） | ROM 选择菜单 | Rick RPG Adventure（homebrew RPG） |

@@ -29,6 +29,13 @@
 
 #define PCM_DEVICE "default"
 
+/* The board codec (SUNXI-CODEC) does NOT support the GBA core's native
+ * 32768Hz. asound.conf pins the default playback graph (softvol+dmix) at
+ * 48kHz, so we resample 32768 -> 48000 in gba_audio_output_cb() and open
+ * the PCM at 48kHz. Without this, the plug layer's resampler makes the DAC
+ * drain ~46% faster than the core produces audio -> constant underruns. */
+#define AUDIO_OUT_RATE 48000
+
 #define AUDIO_FIFO_LEN 16384
 
 #if LV_USE_SDL
@@ -52,6 +59,8 @@ typedef struct {
 
 typedef struct {
     int sample_rate;
+    int volume;          /* 0-100, applied at resample time */
+    uint32_t resample_acc; /* 16.16 fixed-point resampler phase */
     audio_fifo_t fifo;
     int16_t buffer[AUDIO_FIFO_LEN];
 #if LV_USE_SDL == 0
@@ -88,6 +97,8 @@ int gba_audio_init(lv_obj_t* gba_emu)
     int sample_rate = lv_gba_emu_get_audio_sample_rate(gba_emu);
     LV_ASSERT(sample_rate > 0);
     g_audio_ctx.sample_rate = sample_rate;
+    g_audio_ctx.volume = 100;
+    g_audio_ctx.resample_acc = 0;
 
     ret = audio_init(&g_audio_ctx);
     if (ret < 0) {
@@ -103,6 +114,18 @@ void gba_audio_deinit(lv_obj_t* gba_emu)
 {
     LV_UNUSED(gba_emu);
     audio_deinit(&g_audio_ctx);
+}
+
+void gba_audio_set_volume(int volume)
+{
+    if (volume < 0) {
+        volume = 0;
+    }
+    if (volume > 100) {
+        volume = 100;
+    }
+    g_audio_ctx.volume = volume;
+    LV_LOG_USER("audio volume = %d", volume);
 }
 
 /**********************
@@ -201,6 +224,7 @@ static void* audio_thread(void* arg)
 
     while (ctx->running) {
         int avaliable = audio_fifo_avaliable(fifo);
+        avaliable &= ~1; /* keep an even sample count: FIFO holds L/R pairs */
 
         if (avaliable > 0) {
             for (int i = 0; i < avaliable; i++) {
@@ -226,6 +250,43 @@ static void* audio_thread(void* arg)
     return NULL;
 }
 
+/* The T113 codec boots with 'Headphone Switch' off (muted). Flip it on so
+ * audio actually reaches the headphone/lineout path without manual amixer
+ * setup on every boot. */
+static void audio_unmute_codec(void)
+{
+    snd_mixer_t* mixer = NULL;
+    snd_mixer_selem_id_t* sid = NULL;
+    int ret = snd_mixer_open(&mixer, 0);
+    if (ret < 0) {
+        LV_LOG_WARN("snd_mixer_open failed: %s", snd_strerror(ret));
+        return;
+    }
+
+    ret = snd_mixer_attach(mixer, "default");
+    if (ret < 0) {
+        LV_LOG_WARN("snd_mixer_attach failed: %s", snd_strerror(ret));
+        snd_mixer_close(mixer);
+        return;
+    }
+
+    snd_mixer_selem_register(mixer, NULL, NULL);
+    snd_mixer_load(mixer);
+
+    snd_mixer_selem_id_alloca(&sid);
+    snd_mixer_selem_id_set_name(sid, "Headphone Switch");
+    snd_mixer_elem_t* elem = snd_mixer_find_selem(mixer, sid);
+    if (elem) {
+        snd_mixer_selem_set_playback_switch_all(elem, 1);
+        LV_LOG_USER("codec Headphone Switch -> on (unmuted)");
+    }
+    else {
+        LV_LOG_WARN("Headphone Switch control not found");
+    }
+
+    snd_mixer_close(mixer);
+}
+
 static int audio_init(audio_ctx_t* ctx)
 {
     int ret;
@@ -241,23 +302,27 @@ static int audio_init(audio_ctx_t* ctx)
         return ret;
     }
 
-    LV_LOG_USER("pcm_handle = %p, sample_rate = %d", ctx->pcm_handle, ctx->sample_rate);
+    LV_LOG_USER("pcm_handle = %p, in_rate = %d, out_rate = %d",
+                ctx->pcm_handle, ctx->sample_rate, AUDIO_OUT_RATE);
     int channels = 2;
 
-    /* Set hardware parameters based on your audio file's parameters */
+    /* Set hardware parameters; audio is resampled to 48kHz before it lands
+     * in the FIFO (see gba_audio_output_cb), so open the PCM at 48kHz. */
     ret = snd_pcm_set_params(ctx->pcm_handle,
         SND_PCM_FORMAT_S16_LE,
         SND_PCM_ACCESS_RW_INTERLEAVED,
         channels,
-        ctx->sample_rate,
+        AUDIO_OUT_RATE,
         1,
-        500000);
+        300000);
     if (ret < 0) {
         LV_LOG_ERROR("Unable to set PCM parameters: %s", snd_strerror(ret));
         snd_pcm_close(ctx->pcm_handle);
         ctx->pcm_handle = NULL;
         return ret;
     }
+
+    audio_unmute_codec();
 
     ctx->running = true;
     ret = pthread_create(&ctx->thread_id, NULL, audio_thread, ctx);
@@ -283,18 +348,46 @@ static void audio_deinit(audio_ctx_t* ctx)
 static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t frames)
 {
     audio_ctx_t* ctx = user_data;
-    int len = frames * 2;
-    int written = 0;
+    audio_fifo_t* fifo = &ctx->fifo;
+    size_t written_frames = 0;
 
-    AUDIO_LOCK();
+    /* Linear-interpolation resampler: GBA core rate (32768Hz) -> 48kHz,
+     * matching the board's dmix/softvol graph (asound.conf). Feeding raw
+     * 32768Hz samples into the 48kHz plug resampler drains the FIFO faster
+     * than the core fills it -> underruns (audible as no/choppy audio). */
+    const uint32_t step = ((uint32_t)ctx->sample_rate << 16) / AUDIO_OUT_RATE;
+    uint32_t acc = ctx->resample_acc; /* 16.16: output position -> input position */
 
-    while (len--) {
-        if (!audio_fifo_write(&ctx->fifo, *data++)) {
+    while (1) {
+        uint32_t in_idx = acc >> 16;
+        if (in_idx >= frames) {
             break;
         }
-        written++;
+        uint32_t frac = acc & 0xFFFF;
+
+        int16_t l0 = data[in_idx * 2];
+        int16_t r0 = data[in_idx * 2 + 1];
+        int16_t l1 = (in_idx + 1 < frames) ? data[(in_idx + 1) * 2] : l0;
+        int16_t r1 = (in_idx + 1 < frames) ? data[(in_idx + 1) * 2 + 1] : r0;
+
+        int16_t lo = (int16_t)(l0 + (((int32_t)(l1 - l0) * (int32_t)frac) >> 16));
+        int16_t ro = (int16_t)(r0 + (((int32_t)(r1 - r0) * (int32_t)frac) >> 16));
+
+        if (ctx->volume < 100) {
+            lo = (int16_t)(((int32_t)lo * ctx->volume) / 100);
+            ro = (int16_t)(((int32_t)ro * ctx->volume) / 100);
+        }
+
+        AUDIO_LOCK();
+        bool ok = audio_fifo_write(fifo, lo) && audio_fifo_write(fifo, ro);
+        AUDIO_UNLOCK();
+        if (!ok) {
+            break;
+        }
+        written_frames++;
+        acc += step;
     }
 
-    AUDIO_UNLOCK();
-    return written / 2;
+    ctx->resample_acc = acc;
+    return written_frames;
 }
