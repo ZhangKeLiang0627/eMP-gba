@@ -234,12 +234,25 @@ static void* audio_thread(void* arg)
     audio_ctx_t* ctx = arg;
     int16_t buffer[AUDIO_FIFO_LEN];
     audio_fifo_t* fifo = &ctx->fifo;
+    /* Silence filler: when the producer hiccups (a heavy GBA frame stalls the
+     * audio callback) the FIFO may run dry; feeding silence keeps the PCM
+     * buffer from draining, avoiding snd_pcm_recover underrun loops. */
+    static const int16_t silence[512 * 2] = { 0 };
+    bool primed = false;
 
     while (ctx->running) {
         int avaliable = audio_fifo_avaliable(fifo);
         avaliable &= ~1; /* keep an even sample count: FIFO holds L/R pairs */
 
         if (avaliable > 0) {
+            /* Prime: wait until we have a chunk before starting playback so
+             * the dmix buffer starts with some headroom against jitter. */
+            if (!primed && avaliable < 1024) {
+                usleep(1000);
+                continue;
+            }
+            primed = true;
+
             for (int i = 0; i < avaliable; i++) {
                 buffer[i] = audio_fifo_read(fifo);
             }
@@ -255,6 +268,13 @@ static void* audio_thread(void* arg)
                 snd_pcm_recover(ctx->pcm_handle, frames_written, 0);
             } else if (frames_written != frames) {
                 LV_LOG_WARN("Short write, expected %d frames but wrote %ld", avaliable, frames_written);
+            }
+        }
+        else if (primed) {
+            /* Producer stalled: keep the PCM stream alive with silence. */
+            snd_pcm_sframes_t wr = snd_pcm_writei(ctx->pcm_handle, silence, 512);
+            if (wr < 0) {
+                snd_pcm_recover(ctx->pcm_handle, wr, 0);
             }
         }
 
