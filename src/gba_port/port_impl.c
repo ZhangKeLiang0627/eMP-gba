@@ -13,9 +13,10 @@ void lv_port_sleep(uint32_t ms)
     usleep(ms * 1000);
 }
 
-void lv_port_init(void)
+int lv_port_init(void)
 {
     /* display/input initialized in HAL::Init() */
+    return 0;
 }
 
 void gba_port_init(lv_obj_t* gba_emu)

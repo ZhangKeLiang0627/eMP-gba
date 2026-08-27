@@ -12,6 +12,8 @@
 #include "HAL.h"
 #include "Model.h"
 
+#include <unistd.h>
+
 static Page::Model * model;
 
 static void exitCallback(void)

@@ -28,6 +28,15 @@ set(SYSROOT_DIR  "${T113_SDK}/sysroot")
 message(STATUS "T113 toolchain dir : ${TOOLCHAIN_DIR}")
 message(STATUS "T113 sysroot dir   : ${SYSROOT_DIR}")
 
+# Make the toolchain sysroot-aware so the linker resolves -l<third-party>
+# (e.g. -lasound) against the sysroot instead of falling back to host paths.
+# The OpenWrt g++ wrapper also expects STAGING_DIR to be exported by the
+# caller (see build.sh) for the same reason.
+set(CMAKE_SYSROOT "${SYSROOT_DIR}")
+set(CMAKE_FIND_ROOT_PATH "${SYSROOT_DIR}")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${SYSROOT_DIR}/lib -L${SYSROOT_DIR}/usr/lib")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${SYSROOT_DIR}/lib -L${SYSROOT_DIR}/usr/lib")
+
 include_directories(
     ${SYSROOT_DIR}/usr/include
     ${SYSROOT_DIR}/usr/include/allwinner

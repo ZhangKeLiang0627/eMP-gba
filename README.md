@@ -42,7 +42,7 @@ eMP-gba
   （GCC 6.4.1 musl，ARMv7-A / Cortex-A7）
 - submodule：
   - `libs/lvgl` → [lvgl/lvgl](https://github.com/lvgl/lvgl) @ v9.4.0
-  - `libs/vba-next` → [FASTSHIFT/vba-next](https://github.com/FASTSHIFT/vba-next) @ master
+  - `libs/vba-next` → [FASTSHIFT/vba-next](https://github.com/FASTSHIFT/vba-next) @ `a5e0d8ad`（与 lv_gba_emu 一致的钉定版本，含 `gba_set_rom_size`）
 
 ## 构建
 

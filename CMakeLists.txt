@@ -45,7 +45,6 @@ add_definitions(
     -DHAVE_INTTYPES_H
     -DHAVE_NEON=0
     -DGBA_FRAME_SKIP="0"
-    -DUSE_CACHE_PREFETCH=1
 )
 
 # ---- Sources: GBA core (C) ----
@@ -59,6 +58,7 @@ file(GLOB GBA_CORE_SOURCES
 set(GBA_PORT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gba_port/port_impl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gba_port/gba_port_audio.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gba_port/lv_fs_posix.c
 )
 
 # ---- Sources: our app (HAL / Model / View / main) ----

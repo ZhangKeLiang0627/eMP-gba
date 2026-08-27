@@ -5,6 +5,9 @@ set -e
 
 SDK="${T113_SDK:-/home/hugokkl/eMP-t113-toolchain}"
 
+# OpenWrt toolchain wrapper requires STAGING_DIR to set --sysroot
+export STAGING_DIR="${SDK}/sysroot"
+
 cmake -B build \
     -DCMAKE_TOOLCHAIN_FILE=cmake/build_for_t113s3.cmake \
     -DT113_SDK="${SDK}"

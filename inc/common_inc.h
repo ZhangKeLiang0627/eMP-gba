@@ -14,7 +14,7 @@ extern "C" uint32_t custom_tick_get(void);
 
 /* Port stubs (gba core expects these symbols). */
 extern "C" void lv_port_sleep(uint32_t ms);
-extern "C" void lv_port_init(void);
+extern "C" int lv_port_init(void);   /* matches upstream port.h (returns int) */
 extern "C" void gba_port_init(lv_obj_t* gba_emu);
 extern "C" uint32_t lv_port_tick_get(void);
 
