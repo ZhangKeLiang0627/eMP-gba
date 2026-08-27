@@ -283,13 +283,31 @@ static void* audio_thread(void* arg)
     return NULL;
 }
 
-/* The T113 codec boots with 'Headphone Switch' off (muted). Flip it on so
- * audio actually reaches the headphone/lineout path without manual amixer
- * setup on every boot. */
-static void audio_unmute_codec(void)
+/* Set a mixer playback volume element to its max (0dB) if found. */
+static void mixer_set_volume_max(snd_mixer_t* mixer, const char* name)
+{
+    snd_mixer_selem_id_t* sid = NULL;
+    snd_mixer_selem_id_alloca(&sid);
+    snd_mixer_selem_id_set_name(sid, name);
+    snd_mixer_elem_t* elem = snd_mixer_find_selem(mixer, sid);
+    if (elem) {
+        long min, max;
+        snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+        snd_mixer_selem_set_playback_volume_all(elem, max);
+        LV_LOG_USER("codec %s -> %ld (max)", name, max);
+    }
+    else {
+        LV_LOG_WARN("%s control not found", name);
+    }
+}
+
+/* The T113 codec boots with the output path muted and the headphone/DAC
+ * gains low ('Headphone volume' defaults to 4/7 = -18dB, 'DAC volume' to
+ * 160/255). The GBA core's audio is also dynamically quiet, so on top of
+ * unmuting we push the codec gains to 0dB max for a clearly audible level. */
+static void audio_setup_codec(void)
 {
     snd_mixer_t* mixer = NULL;
-    snd_mixer_selem_id_t* sid = NULL;
     int ret = snd_mixer_open(&mixer, 0);
     if (ret < 0) {
         LV_LOG_WARN("snd_mixer_open failed: %s", snd_strerror(ret));
@@ -306,16 +324,25 @@ static void audio_unmute_codec(void)
     snd_mixer_selem_register(mixer, NULL, NULL);
     snd_mixer_load(mixer);
 
-    snd_mixer_selem_id_alloca(&sid);
-    snd_mixer_selem_id_set_name(sid, "Headphone Switch");
-    snd_mixer_elem_t* elem = snd_mixer_find_selem(mixer, sid);
-    if (elem) {
-        snd_mixer_selem_set_playback_switch_all(elem, 1);
-        LV_LOG_USER("codec Headphone Switch -> on (unmuted)");
+    /* Unmute the output path. */
+    {
+        snd_mixer_selem_id_t* sid = NULL;
+        snd_mixer_selem_id_alloca(&sid);
+        snd_mixer_selem_id_set_name(sid, "Headphone Switch");
+        snd_mixer_elem_t* elem = snd_mixer_find_selem(mixer, sid);
+        if (elem) {
+            snd_mixer_selem_set_playback_switch_all(elem, 1);
+            LV_LOG_USER("codec Headphone Switch -> on (unmuted)");
+        }
+        else {
+            LV_LOG_WARN("Headphone Switch control not found");
+        }
     }
-    else {
-        LV_LOG_WARN("Headphone Switch control not found");
-    }
+
+    /* Push the gains to 0dB (GBA audio is quiet; softvol Master stays as
+     * the user-controlled volume knob via EMP_GBA_VOLUME). */
+    mixer_set_volume_max(mixer, "Headphone volume");
+    mixer_set_volume_max(mixer, "DAC volume");
 
     snd_mixer_close(mixer);
 }
@@ -355,7 +382,7 @@ static int audio_init(audio_ctx_t* ctx)
         return ret;
     }
 
-    audio_unmute_codec();
+    audio_setup_codec();
 
     ctx->running = true;
     ret = pthread_create(&ctx->thread_id, NULL, audio_thread, ctx);

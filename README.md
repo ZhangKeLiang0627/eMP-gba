@@ -85,7 +85,7 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 - GBA 核心输出 32768Hz，但 T113 codec（SUNXI-CODEC）**不支持 32768**，直接喂会被 plug 层重采样导致 DAC 消耗比生产快 ≈46%，播放缓冲持续 underrun（声音断/无声）。`gba_port_audio.c` 在回调内做 32768→48000 线性插值重采样（与系统 dmix 同率），实测无 underrun
 - 重采样相位跨回调全局连续（曾因每回调重置导致 FIFO 永久为空 → 完全无声）；FIFO `head/tail` 为 `volatile` + 内存屏障（`-O3` 下跨线程可见性）
-- 应用启动音频时自动打开 codec 的 **Headphone Switch**（板子默认开机静音），无需手动 `amixer cset numid=30 on`
+- 应用启动音频时自动配置 codec 输出：打开 **Headphone Switch**（板子默认开机静音），并把 **Headphone volume / DAC volume 拉到 0dB**（默认 4/7 约 -18dB + 160/255，GBA 音频动态小会听不清）。Soft Volume Master 保留为系统音量旋钮，`amixer cset numid=17 N` 可微调耳机音量（0-7）
 - `EMP_GBA_VOLUME` 控制软件音量（重采样时缩放），0 关闭音频
 - 若某 ROM 无声：先换有音乐的游戏验证（如 Celeste）——**个别 ROM（如 ace1.gba）核心输出的原始音频本身就是 0**，与播放链路无关；`aplay /tmp/tone.wav` 可验证板子链路；听感偏小可 `amixer cset numid=17 7`（Headphone volume 0-7）
 
