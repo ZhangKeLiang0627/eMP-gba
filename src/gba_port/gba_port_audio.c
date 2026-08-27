@@ -436,8 +436,14 @@ static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t f
         int16_t l1 = (local + 1 < frames) ? data[(local + 1) * 2] : l0;
         int16_t r1 = (local + 1 < frames) ? data[(local + 1) * 2 + 1] : r0;
 
-        int16_t lo = (int16_t)(l0 + (((int32_t)(l1 - l0) * (int32_t)frac) >> 16));
-        int16_t ro = (int16_t)(r0 + (((int32_t)(r1 - r0) * (int32_t)frac) >> 16));
+        /* Linear interpolation. NOTE: use 64-bit math for the interpolation
+         * term - (l1-l0) can be +/-65535 and frac up to 65535, whose product
+         * overflows int32 and produced corrupted samples on busy waveforms
+         * (music sounded garbled/distorted while quiet beeps stayed clean). */
+        int32_t dl = (int32_t)l1 - (int32_t)l0;
+        int32_t dr = (int32_t)r1 - (int32_t)r0;
+        int16_t lo = (int16_t)((int32_t)l0 + (int16_t)(((int64_t)dl * (int32_t)frac) >> 16));
+        int16_t ro = (int16_t)((int32_t)r0 + (int16_t)(((int64_t)dr * (int32_t)frac) >> 16));
 
         if (ctx->volume < 100) {
             lo = (int16_t)(((int32_t)lo * ctx->volume) / 100);
