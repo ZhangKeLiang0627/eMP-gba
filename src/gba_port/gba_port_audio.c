@@ -61,8 +61,12 @@ typedef struct {
 typedef struct {
     int sample_rate;
     int volume;          /* 0-100, applied at resample time */
-    uint32_t resample_acc; /* 16.16 fixed: global output->input position */
-    uint32_t in_consumed;  /* global count of input frames already consumed */
+    uint64_t resample_acc; /* 16.16 fixed: global output->input position.
+                              MUST be 64-bit: 48000 out/s * 44739 step/s
+                              overflows uint32 in ~2s and the wrapped phase
+                              made g_idx - in_consumed underflow -> OOB read
+                              -> SIGSEGV in gba_audio_output_cb */
+    uint64_t in_consumed;  /* global count of input frames already consumed */
     audio_fifo_t fifo;
     int16_t buffer[AUDIO_FIFO_LEN];
 #if LV_USE_SDL == 0
@@ -359,23 +363,26 @@ static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t f
     audio_ctx_t* ctx = user_data;
     audio_fifo_t* fifo = &ctx->fifo;
     size_t written_frames = 0;
-    const uint32_t in_start = ctx->in_consumed;
+    const uint64_t in_start = ctx->in_consumed;
 
     /* Linear-interpolation resampler, 32768Hz -> 48kHz. The phase is GLOBAL
      * (carried across callbacks): the core hands us a continuous stream split
      * into batches, so resetting the phase per callback (an earlier bug) made
      * every callback after the first one bail out early and left the FIFO
      * permanently empty -> silent playback. */
-    const uint32_t step = ((uint32_t)ctx->sample_rate << 16) / AUDIO_OUT_RATE;
-    const uint32_t in_end = ctx->in_consumed + (uint32_t)frames;
+    const uint64_t step = ((uint64_t)ctx->sample_rate << 16) / AUDIO_OUT_RATE;
+    const uint64_t in_end = ctx->in_consumed + (uint64_t)frames;
 
     while (1) {
-        uint32_t g_idx = ctx->resample_acc >> 16;
+        uint64_t g_idx = ctx->resample_acc >> 16;
         if (g_idx >= in_end) {
             break;
         }
-        uint32_t frac = ctx->resample_acc & 0xFFFF;
-        uint32_t local = g_idx - ctx->in_consumed;
+        uint32_t frac = (uint32_t)(ctx->resample_acc & 0xFFFF);
+        uint64_t local = g_idx - ctx->in_consumed;
+        if (local >= frames) {
+            break; /* defensive; must not happen */
+        }
 
         int16_t l0 = data[local * 2];
         int16_t r0 = data[local * 2 + 1];
@@ -403,7 +410,7 @@ static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t f
     /* Advance the global input cursor only by what this callback consumed.
      * Return the consumed input frames (<= frames), per the libretro
      * audio_sample_batch contract. */
-    uint32_t consumed = ctx->resample_acc >> 16;
+    uint64_t consumed = ctx->resample_acc >> 16;
     if (consumed < in_start) {
         consumed = in_start;
     }

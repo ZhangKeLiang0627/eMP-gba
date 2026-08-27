@@ -11,7 +11,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ---- Compiler / linker flags ----
 # -O3: vba-next is a CPU-bound ARM7TDMI interpreter; O3 over O2 gives a
 # measurable speedup for the emulation core on Cortex-A7.
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g0 -Wall -Wno-unused-function -Wno-unused-variable -Wno-return-type -Wno-sign-compare -Wno-memset-transposed-args")
+# -g -funwind-tables -rdynamic -fno-omit-frame-pointer: keep symbols and the
+# ARM frame-pointer chain so a crash pc/lr/fp can be resolved offline with
+# addr2line (binary size grows, runtime unaffected).
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -g -funwind-tables -rdynamic -fno-omit-frame-pointer -Wall -Wno-unused-function -Wno-unused-variable -Wno-return-type -Wno-sign-compare -Wno-memset-transposed-args")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_C_FLAGS}")
 
 # ---- Include paths ----
