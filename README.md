@@ -107,6 +107,17 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 └──────────────────────────────┘
 ```
 
+## 性能优化（T113-S3 实测 60fps）
+
+板端实测稳定 **60 fps**（GBA 原生帧率，音频开/关一致）。关键优化：
+
+| 优化点 | 改动 | 影响 |
+|---|---|---|
+| LVGL 刷新周期 | `LV_DISP_DEF_REFR_PERIOD 16`（默认 30ms 会把可见帧率锁死在 33fps） | 显示从 33fps → 60fps，**提升最大的单项** |
+| 去掉 transform 缩放 | 240×160 canvas + `transform_zoom` 改为 480×320 原生 canvas，`gba_view_draw_frame` 内整数 2x 最近邻放大 | 每帧省掉 LVGL 软件变换的 CPU 开销 |
+| fbdev 脏矩形刷新 | `lv_linux_fbdev_set_force_refresh(false)` | 不再每帧整屏 memcpy 921600 字节 |
+| 编译优化 | `-O2` → `-O3`（vba-next 是纯 CPU 的 ARM7TDMI 解释器） | 仿真核心提速 |
+
 ## 架构
 
 - HAL：`lv_init` / `lv_fs_posix_init` / fbdev（`/dev/fb0`）/ evdev（`/dev/input/event1`）/ 信号处理

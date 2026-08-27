@@ -34,6 +34,11 @@
 #define LV_LOG_LEVEL    LV_LOG_LEVEL_WARN
 #define LV_LOG_PRINTF   0
 
+/*==================== DISPLAY ====================*/
+/* GBA core runs at 60fps; the default 30ms refresh period caps the visible
+ * frame rate at 33fps and drops half of the emulated frames. 16ms -> 60fps. */
+#define LV_DISP_DEF_REFR_PERIOD 16
+
 /*==================== DRAW ENGINE ====================*/
 #define LV_USE_DRAW_SW      1
 #define LV_DRAW_SW_COMPLEX  1   /* needed for object transform (canvas zoom) */

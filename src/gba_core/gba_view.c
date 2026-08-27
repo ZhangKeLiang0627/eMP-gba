@@ -18,6 +18,7 @@ struct gba_view_s {
     struct {
         lv_obj_t* canvas;
         lv_draw_buf_t draw_buf;
+        lv_color_t* scaled;  /* 480x320 RGB565 buffer, integer 2x of the 240x160 GBA frame */
     } screen;
 
     /* bottom 480x160 button container */
@@ -198,18 +199,11 @@ void gba_view_init(gba_context_t* ctx, lv_obj_t* par, int mode)
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     view->screen.canvas = lv_canvas_create(top);
-    lv_obj_set_size(view->screen.canvas, 240, 160);
-    /* zoom 2x around the canvas center (pivot = 120,80) */
-    lv_obj_set_style_transform_pivot_x(view->screen.canvas, 120, 0);
-    lv_obj_set_style_transform_pivot_y(view->screen.canvas, 80, 0);
-    lv_obj_set_style_transform_zoom(view->screen.canvas, 512, 0);
+    /* Native 480x320 canvas: we upscale the 240x160 GBA frame ourselves with a
+     * cheap integer 2x copy in gba_view_draw_frame(). This avoids LVGL's
+     * software transform (transform_zoom), which cost ~ms of CPU every frame. */
+    lv_obj_set_size(view->screen.canvas, GBA_SCREEN_W, GBA_SCREEN_H / 3 * 2);
     lv_obj_set_style_bg_opa(view->screen.canvas, LV_OPA_COVER, 0);
-
-    if (mode == LV_GBA_VIEW_MODE_VIRTUAL_KEYPAD) {
-        lv_obj_set_style_outline_color(view->screen.canvas,
-                                       lv_theme_get_color_primary(view->screen.canvas), 0);
-        lv_obj_set_style_outline_width(view->screen.canvas, 4, 0);
-    }
 
     /* ---- bottom: 480x160 control area ---- */
     if (mode == LV_GBA_VIEW_MODE_VIRTUAL_KEYPAD) {
@@ -231,6 +225,10 @@ void gba_view_deinit(gba_context_t* ctx)
 {
     LV_ASSERT_NULL(ctx);
     LV_ASSERT_NULL(ctx->view);
+    if (ctx->view->screen.scaled) {
+        lv_free(ctx->view->screen.scaled);
+        ctx->view->screen.scaled = NULL;
+    }
     lv_free(ctx->view);
 }
 
@@ -251,14 +249,37 @@ void gba_view_invalidate_frame(gba_context_t* ctx)
 void gba_view_draw_frame(gba_context_t* ctx, const uint16_t* buf, lv_coord_t width, lv_coord_t height)
 {
     lv_obj_t* canvas = ctx->view->screen.canvas;
-    if (ctx->view->screen.draw_buf.data != (uint8_t*)buf) {
+
+    /* First frame: allocate the 480x320 RGB565 canvas buffer once and bind it. */
+    if (ctx->view->screen.scaled == NULL) {
+        ctx->view->screen.scaled = lv_malloc(GBA_SCREEN_W * (GBA_SCREEN_H / 3 * 2) * sizeof(uint16_t));
+        LV_ASSERT_MALLOC(ctx->view->screen.scaled);
         lv_draw_buf_init(
             &ctx->view->screen.draw_buf,
-            width, height,
-            LV_COLOR_FORMAT_RGB565, ctx->av_info.fb_stride * sizeof(uint16_t),
-            (void*)buf, ctx->av_info.fb_stride * height * sizeof(uint16_t));
+            GBA_SCREEN_W, GBA_SCREEN_H / 3 * 2,
+            LV_COLOR_FORMAT_RGB565, GBA_SCREEN_W * sizeof(uint16_t),
+            ctx->view->screen.scaled,
+            GBA_SCREEN_W * (GBA_SCREEN_H / 3 * 2) * sizeof(uint16_t));
         lv_canvas_set_draw_buf(canvas, &ctx->view->screen.draw_buf);
-        LV_LOG_USER("set direct canvas buffer = %p", (void*)buf);
+    }
+
+    /* Integer 2x nearest-neighbor upscale 240x160 -> 480x320.
+     * ~153K 16-bit writes, well under 1ms on a Cortex-A7 - much cheaper than
+     * LVGL's software transform (transform_zoom) used before. */
+    const uint16_t* src = buf;
+    uint16_t* dst = ctx->view->screen.scaled;
+    uint32_t src_stride = ctx->av_info.fb_stride; /* pixels per row (256) */
+
+    for (int y = 0; y < height; y++) {
+        const uint16_t* srow = src + y * src_stride;
+        uint16_t* drow = dst + (y * 2) * GBA_SCREEN_W;
+        for (int x = 0; x < width; x++) {
+            uint16_t c = srow[x];
+            drow[x * 2] = c;
+            drow[x * 2 + 1] = c;
+            drow[GBA_SCREEN_W + x * 2] = c;
+            drow[GBA_SCREEN_W + x * 2 + 1] = c;
+        }
     }
 
 #if THREADED_RENDERER
