@@ -83,8 +83,9 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 ## 音频（ALSA，板端实测有声）
 
-- GBA 核心输出 32768Hz，但 T113 codec（SUNXI-CODEC）**不支持 32768**，直接喂会被 plug 层重采样导致 DAC 消耗比生产快 ≈46%，播放缓冲持续 underrun（声音断/无声）。`gba_port_audio.c` 在回调内做 32768→48000 线性插值重采样（与系统 dmix 同率），实测无 underrun
-- 重采样相位跨回调全局连续（曾因每回调重置导致 FIFO 永久为空 → 完全无声）；FIFO `head/tail` 为 `volatile` + 内存屏障（`-O3` 下跨线程可见性）
+- GBA 核心实际输出 **32000Hz**（libretro `sample_rate=32000`），T113 codec 不支持该非标采样率；`gba_port_audio.c` 在回调内线性插值重采样到 **48000Hz**（与系统 dmix 同率）
+- **ASRC 自适应速率匹配**：GBA 音频时钟跟随模拟帧率，重载 ROM（如绿宝石）帧率掉到 55-57fps 时生产慢于播放，固定比率会让 FIFO 周期性枯竭、补静音 → 音乐"糊/炸"。按 FIFO 水位负反馈微调重采样比率（±5% 内），生产平滑跟随消费时钟（音乐略慢但连续）
+- 重采样相位跨回调全局连续（曾因每回调重置导致 FIFO 永久为空 → 完全无声）；相位累加器用 64 位（32 位约 2 秒溢出 → 越界读 → SIGSEGV）；插值乘法用 64 位（32 位溢出 → 音乐失真）；FIFO `head/tail` 为 `volatile` + 内存屏障（`-O3` 下跨线程可见性）
 - 应用启动音频时自动配置 codec 输出：打开 **Headphone Switch**（板子默认开机静音），并把 **Headphone volume / DAC volume 拉到 0dB**（默认 4/7 约 -18dB + 160/255，GBA 音频动态小会听不清）。Soft Volume Master 保留为系统音量旋钮，`amixer cset numid=17 N` 可微调耳机音量（0-7）
 - `EMP_GBA_VOLUME` 控制软件音量（重采样时缩放），0 关闭音频
 - 若某 ROM 无声：先换有音乐的游戏验证（如 Celeste）——**个别 ROM（如 ace1.gba）核心输出的原始音频本身就是 0**，与播放链路无关；`aplay /tmp/tone.wav` 可验证板子链路；听感偏小可 `amixer cset numid=17 7`（Headphone volume 0-7）

@@ -37,6 +37,11 @@
  * drain ~46% faster than the core produces audio -> constant underruns. */
 #define AUDIO_OUT_RATE 48000
 
+/* ASRC tuning: keep the FIFO near this level (frames) and allow the
+ * resampler ratio to drift up to +-5% to match the consumer clock. */
+#define ASRC_TARGET_FRAMES 2048
+#define ASRC_MAX_ADJ       ((int32_t)((32000LL << 16) / 48000) * 5 / 100) /* ~5% of base step */
+
 #define AUDIO_FIFO_LEN 16384
 
 #if LV_USE_SDL
@@ -67,6 +72,7 @@ typedef struct {
                               made g_idx - in_consumed underflow -> OOB read
                               -> SIGSEGV in gba_audio_output_cb */
     uint64_t in_consumed;  /* global count of input frames already consumed */
+    int32_t asrc_avg;      /* EMA of (fifo_frames - target), drives rate match */
     audio_fifo_t fifo;
     int16_t buffer[AUDIO_FIFO_LEN];
 #if LV_USE_SDL == 0
@@ -106,6 +112,7 @@ int gba_audio_init(lv_obj_t* gba_emu)
     g_audio_ctx.volume = 100;
     g_audio_ctx.resample_acc = 0;
     g_audio_ctx.in_consumed = 0;
+    g_audio_ctx.asrc_avg = 0;
 
     ret = audio_init(&g_audio_ctx);
     if (ret < 0) {
@@ -420,12 +427,22 @@ static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t f
     size_t written_frames = 0;
     const uint64_t in_start = ctx->in_consumed;
 
-    /* Linear-interpolation resampler, 32768Hz -> 48kHz. The phase is GLOBAL
-     * (carried across callbacks): the core hands us a continuous stream split
-     * into batches, so resetting the phase per callback (an earlier bug) made
-     * every callback after the first one bail out early and left the FIFO
-     * permanently empty -> silent playback. */
-    const uint64_t step = ((uint64_t)ctx->sample_rate << 16) / AUDIO_OUT_RATE;
+    /* ASRC (adaptive rate matching): the GBA audio clock follows the emulated
+     * frame rate, which dips below 60 on heavy ROMs (Pokemon Emerald ~57fps).
+     * Feeding a fixed 48k rate then drains the FIFO periodically -> silence
+     * filler -> garbled/harsh music. We nudge the resampler ratio from the
+     * FIFO level (negative feedback, clamped to +-5%) so production follows
+     * the consumer clock smoothly; the music gets slightly slower instead of
+     * chopped.
+     * NOTE the sign: FIFO low (production behind) -> step smaller -> more
+     * output frames -> refill. */
+    const int64_t base_step = ((int64_t)ctx->sample_rate << 16) / AUDIO_OUT_RATE;
+    int32_t fifo_frames = (int32_t)(audio_fifo_avaliable(fifo) >> 1);
+    ctx->asrc_avg = ((int64_t)ctx->asrc_avg * 31 + (int64_t)(fifo_frames - ASRC_TARGET_FRAMES)) / 32;
+    int32_t adj = (int32_t)(((int64_t)ctx->asrc_avg * 3));
+    if (adj > ASRC_MAX_ADJ) adj = ASRC_MAX_ADJ;
+    if (adj < -ASRC_MAX_ADJ) adj = -ASRC_MAX_ADJ;
+    const uint64_t step = (uint64_t)(base_step + adj);
     const uint64_t in_end = ctx->in_consumed + (uint64_t)frames;
 
     while (1) {

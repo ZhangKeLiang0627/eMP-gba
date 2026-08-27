@@ -23,6 +23,7 @@
 #include "gba_internal.h"
 #include "libretro.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #define GBA_FB_STRIDE 256
