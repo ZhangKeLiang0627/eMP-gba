@@ -9,6 +9,7 @@
  *     control layout of lv_gba_emu.
  */
 #include "gba_emu.h"
+#include <stdio.h>
 #include "gba_internal.h"
 
 struct gba_view_s {
@@ -179,6 +180,7 @@ void gba_view_init(gba_context_t* ctx, lv_obj_t* par, int mode)
 
     lv_obj_t* root = lv_obj_create(par);
     view->root = root;
+    lv_obj_set_user_data(root, ctx);   /* gba_emu accessors read ctx via the object's user_data */
     lv_obj_remove_style_all(root);
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));

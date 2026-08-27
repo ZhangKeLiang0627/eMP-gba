@@ -10,6 +10,11 @@
  * All paths reaching us are absolute and already start with the drive
  * letter '/', so we pass them verbatim to the C stdio API. A possible
  * legacy "X:" prefix is stripped if present.
+ *
+ * NOTE: LVGL v9.4.0 callback signatures are "return the handle" style:
+ *   open_cb  -> void*   (the FILE*), NULL on failure
+ *   dir_open_cb -> void* (the DIR*), NULL on failure
+ *   dir_read_cb takes a fn_len parameter
  */
 #include "lvgl/lvgl.h"
 
@@ -30,7 +35,25 @@ static const char * strip_letter(const char * path)
     return path;
 }
 
-static lv_fs_res_t fs_open_cb(lv_fs_drv_t * drv, void * file_p, const char * path, lv_fs_mode_t mode)
+/*
+ * LVGL's lv_fs_resolve_path() strips the driver letter from the path before
+ * calling our callbacks. Since the driver letter IS '/', a path like
+ * "/root/roms/x.gba" arrives here as "root/roms/x.gba". Restore the leading
+ * '/' so fopen/opendir always see an absolute path.
+ */
+static char g_full_path[1024];
+
+static const char * normalize_path(const char * path)
+{
+    if(path == NULL)
+        return NULL;
+    if(path[0] == '/')
+        return path; /* already absolute */
+    lv_snprintf(g_full_path, sizeof(g_full_path), "/%s", path);
+    return g_full_path;
+}
+
+static void * fs_open_cb(lv_fs_drv_t * drv, const char * path, lv_fs_mode_t mode)
 {
     (void) drv;
 
@@ -38,17 +61,15 @@ static lv_fs_res_t fs_open_cb(lv_fs_drv_t * drv, void * file_p, const char * pat
     if(mode == LV_FS_MODE_WR) flags = "wb";
     else if(mode == LV_FS_MODE_RD) flags = "rb";
     else if(mode == (LV_FS_MODE_WR | LV_FS_MODE_RD)) flags = "rb+";
-    else return LV_FS_RES_INV_PARAM;
+    else return NULL;
 
-    const char * real = strip_letter(path);
+    const char * real = normalize_path(strip_letter(path));
 
     FILE * fp = fopen(real, flags);
     if(fp == NULL)
-        return LV_FS_RES_FS_ERR;
+        return NULL;
 
-    /* file_p points at the lv_fs_file_t::file_d member; store our FILE* there. */
-    *(void **)file_p = (void *)fp;
-    return LV_FS_RES_OK;
+    return (void *)fp;
 }
 
 static lv_fs_res_t fs_close_cb(lv_fs_drv_t * drv, void * file_p)
@@ -103,7 +124,7 @@ static lv_fs_res_t fs_seek_cb(lv_fs_drv_t * drv, void * file_p, uint32_t pos, lv
     return LV_FS_RES_OK;
 }
 
-static lv_fs_res_t fs_tell_cb(lv_fs_drv_t * drv, void * file_p, uint32_t * pos)
+static lv_fs_res_t fs_tell_cb(lv_fs_drv_t * drv, void * file_p, uint32_t * pos_p)
 {
     (void) drv;
     FILE * fp = (FILE *)file_p;
@@ -113,28 +134,27 @@ static lv_fs_res_t fs_tell_cb(lv_fs_drv_t * drv, void * file_p, uint32_t * pos)
     long p = ftell(fp);
     if(p < 0)
         return LV_FS_RES_FS_ERR;
-    *pos = (uint32_t)p;
+    *pos_p = (uint32_t)p;
     return LV_FS_RES_OK;
 }
 
-static lv_fs_res_t fs_dir_open_cb(lv_fs_drv_t * drv, void * dir_p, const char * path)
+static void * fs_dir_open_cb(lv_fs_drv_t * drv, const char * path)
 {
     (void) drv;
-    const char * real = strip_letter(path);
+    const char * real = normalize_path(strip_letter(path));
 
     DIR * d = opendir(real);
     if(d == NULL)
-        return LV_FS_RES_FS_ERR;
+        return NULL;
 
-    *(void **)dir_p = (void *)d;
-    return LV_FS_RES_OK;
+    return (void *)d;
 }
 
-static lv_fs_res_t fs_dir_read_cb(lv_fs_drv_t * drv, void * dir_p, char * fn)
+static lv_fs_res_t fs_dir_read_cb(lv_fs_drv_t * drv, void * rddir_p, char * fn, uint32_t fn_len)
 {
     (void) drv;
-    DIR * d = (DIR *)dir_p;
-    if(d == NULL) {
+    DIR * d = (DIR *)rddir_p;
+    if(d == NULL || fn_len == 0) {
         fn[0] = '\0';
         return LV_FS_RES_OK;
     }
@@ -145,15 +165,15 @@ static lv_fs_res_t fs_dir_read_cb(lv_fs_drv_t * drv, void * dir_p, char * fn)
         return LV_FS_RES_OK;
     }
 
-    strncpy(fn, e->d_name, 255);
-    fn[255] = '\0';
+    strncpy(fn, e->d_name, fn_len - 1);
+    fn[fn_len - 1] = '\0';
     return LV_FS_RES_OK;
 }
 
-static lv_fs_res_t fs_dir_close_cb(lv_fs_drv_t * drv, void * dir_p)
+static lv_fs_res_t fs_dir_close_cb(lv_fs_drv_t * drv, void * rddir_p)
 {
     (void) drv;
-    DIR * d = (DIR *)dir_p;
+    DIR * d = (DIR *)rddir_p;
     if(d)
         closedir(d);
     return LV_FS_RES_OK;

@@ -37,7 +37,6 @@ void HAL::Init(void)
 
     /* Touchscreen via evdev */
     lv_indev_t * indev = lv_evdev_create(LV_INDEV_TYPE_POINTER, "/dev/input/event1");
-    (void)indev;
 
     /* Register exit signal handler */
     install_signal_handler();

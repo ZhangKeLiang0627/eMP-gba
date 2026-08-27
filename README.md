@@ -70,6 +70,7 @@ make -C build -j$(nproc)
 # 环境变量（可选）
 export EMP_GBA_ROM_DIR=/root/roms    # ROM 目录，默认 /root
 export EMP_GBA_VOLUME=100            # 音量 0-100，0 关闭音频
+export EMP_GBA_AUTOSTART=/root/roms/xxx.gba   # 启动后直接进入指定 ROM（跳过菜单）
 export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 ./eMP_gba
@@ -79,6 +80,15 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 - 虚拟按键：十字键 / A / B / L / R / START / SELECT
 - SELECT 长按 2 秒：保存存档并返回菜单
 - 存档：同目录 `.sav` 文件自动读写（ROM 删除时 `.sav` 一并删除）
+
+## 实机截图（T113-S3 板端）
+
+| ROM 选择菜单 | Rick RPG Adventure（homebrew RPG） | BGRotZoomMode3（旋转缩放 demo） |
+|---|---|---|
+| ![menu](docs/img/menu.png) | ![rickrpg](docs/img/rickrpg.png) | ![bgrotzoom](docs/img/bgrotzoom.png) |
+
+上方 480×320 为 GBA 画面（240×160 放大 2 倍），下方 480×160 为虚拟按键区。
+测试 ROM 来自 [PeterLemon/GBA](https://github.com/PeterLemon/GBA)（homebrew 示例）。
 
 ## 屏幕布局（480×480）
 

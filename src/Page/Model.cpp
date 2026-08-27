@@ -28,7 +28,16 @@ Model::Model(std::function<void(void)> exitCb)
     /* Show the ROM picker (runs in the main thread before the LVGL thread
      * is spawned, so no concurrent LVGL access yet). */
     auto selectCb = [this](const std::string & path) { this->launch(path); };
-    _view.showMenu(_romDir, selectCb);
+
+    /* Optional auto-launch: EMP_GBA_AUTOSTART=/path/to/rom.gba */
+    const char * autoRom = getenv("EMP_GBA_AUTOSTART");
+    if (autoRom != nullptr && autoRom[0] != '\0') {
+        LV_LOG_USER("[Model] autostart ROM: %s", autoRom);
+        launch(autoRom);
+    }
+    else {
+        _view.showMenu(_romDir, selectCb);
+    }
 
     /* Spawn the LVGL thread that drives lv_timer_handler (and thus the
      * emulator timer + animations). */

@@ -13,6 +13,7 @@
 #include "Model.h"
 
 #include <unistd.h>
+#include <cstdio>
 
 static Page::Model * model;
 
@@ -22,18 +23,33 @@ static void exitCallback(void)
     exit(0);
 }
 
+/* Debug: forward LVGL logs to stderr */
+static void log_print_cb(lv_log_level_t level, const char * buf)
+{
+    LV_UNUSED(level);
+    fprintf(stderr, "%s", buf);
+    fflush(stderr);
+}
+
 int main(int argc, char * argv[])
 {
     (void)argc;
     (void)argv;
 
-    LV_LOG_USER("[Sys] eMP-gba starting ...");
+    fprintf(stderr, "[main] eMP-gba starting ...\n");
+    fflush(stderr);
+
+#if LV_USE_LOG
+    lv_log_register_print_cb(log_print_cb);
+#endif
 
     /* Hardware init: LVGL + POSIX FS + fbdev + evdev */
     HAL::Init();
+    fprintf(stderr, "[main] HAL::Init done\n");
 
     /* Build the UI + start the LVGL thread */
     model = new Page::Model(exitCallback);
+    fprintf(stderr, "[main] Model created\n");
 
     /* Main thread: idle. Everything else runs in the LVGL thread. */
     while (1) {

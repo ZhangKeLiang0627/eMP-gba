@@ -9,7 +9,6 @@ build/
 # board capture / logs
 *.raw
 *.log
-*.png
 
 # editor
 .vscode/
