@@ -271,10 +271,18 @@ static void* audio_thread(void* arg)
             }
         }
         else if (primed) {
-            /* Producer stalled: keep the PCM stream alive with silence. */
-            snd_pcm_sframes_t wr = snd_pcm_writei(ctx->pcm_handle, silence, 512);
-            if (wr < 0) {
-                snd_pcm_recover(ctx->pcm_handle, wr, 0);
+            /* Producer gap: the core feeds audio in ~16.7ms batches and
+             * scheduler jitter can leave the FIFO momentarily empty between
+             * them. Filling silence immediately on every empty poll chopped
+             * the stream into tiny gaps (audible as garbled/harsh music).
+             * Wait a few ms first; only fill silence when the gap is real. */
+            usleep(3000);
+            int again = audio_fifo_avaliable(fifo) & ~1;
+            if (again <= 0) {
+                snd_pcm_sframes_t wr = snd_pcm_writei(ctx->pcm_handle, silence, 512);
+                if (wr < 0) {
+                    snd_pcm_recover(ctx->pcm_handle, wr, 0);
+                }
             }
         }
 
