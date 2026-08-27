@@ -21,6 +21,7 @@
 #include <alsa/asoundlib.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <stdio.h>
 #endif
 
 /*********************
@@ -52,15 +53,16 @@
 
 typedef struct {
     int16_t* buffer;
-    int head;
-    int tail;
+    volatile int head;  /* written by the LVGL thread (producer) only */
+    volatile int tail;  /* written by the audio thread (consumer) only */
     int size;
 } audio_fifo_t;
 
 typedef struct {
     int sample_rate;
     int volume;          /* 0-100, applied at resample time */
-    uint32_t resample_acc; /* 16.16 fixed-point resampler phase */
+    uint32_t resample_acc; /* 16.16 fixed: global output->input position */
+    uint32_t in_consumed;  /* global count of input frames already consumed */
     audio_fifo_t fifo;
     int16_t buffer[AUDIO_FIFO_LEN];
 #if LV_USE_SDL == 0
@@ -99,6 +101,7 @@ int gba_audio_init(lv_obj_t* gba_emu)
     g_audio_ctx.sample_rate = sample_rate;
     g_audio_ctx.volume = 100;
     g_audio_ctx.resample_acc = 0;
+    g_audio_ctx.in_consumed = 0;
 
     ret = audio_init(&g_audio_ctx);
     if (ret < 0) {
@@ -148,6 +151,10 @@ static bool audio_fifo_write(audio_fifo_t* fifo, int16_t data)
     }
 
     fifo->buffer[fifo->head] = data;
+    /* Publish the sample before the consumer can see the new head.
+     * Cortex-A7 is weakly-ordered; without this fence (and volatile) the
+     * audio thread may read a stale head and never drain the FIFO. */
+    __sync_synchronize();
     fifo->head = i;
     return true;
 }
@@ -159,6 +166,8 @@ static int16_t audio_fifo_read(audio_fifo_t* fifo)
     }
 
     int16_t data = fifo->buffer[fifo->tail];
+    /* Consume the sample before releasing the slot to the producer. */
+    __sync_synchronize();
     fifo->tail = (fifo->tail + 1) % fifo->size;
     return data;
 }
@@ -350,25 +359,28 @@ static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t f
     audio_ctx_t* ctx = user_data;
     audio_fifo_t* fifo = &ctx->fifo;
     size_t written_frames = 0;
+    const uint32_t in_start = ctx->in_consumed;
 
-    /* Linear-interpolation resampler: GBA core rate (32768Hz) -> 48kHz,
-     * matching the board's dmix/softvol graph (asound.conf). Feeding raw
-     * 32768Hz samples into the 48kHz plug resampler drains the FIFO faster
-     * than the core fills it -> underruns (audible as no/choppy audio). */
+    /* Linear-interpolation resampler, 32768Hz -> 48kHz. The phase is GLOBAL
+     * (carried across callbacks): the core hands us a continuous stream split
+     * into batches, so resetting the phase per callback (an earlier bug) made
+     * every callback after the first one bail out early and left the FIFO
+     * permanently empty -> silent playback. */
     const uint32_t step = ((uint32_t)ctx->sample_rate << 16) / AUDIO_OUT_RATE;
-    uint32_t acc = ctx->resample_acc; /* 16.16: output position -> input position */
+    const uint32_t in_end = ctx->in_consumed + (uint32_t)frames;
 
     while (1) {
-        uint32_t in_idx = acc >> 16;
-        if (in_idx >= frames) {
+        uint32_t g_idx = ctx->resample_acc >> 16;
+        if (g_idx >= in_end) {
             break;
         }
-        uint32_t frac = acc & 0xFFFF;
+        uint32_t frac = ctx->resample_acc & 0xFFFF;
+        uint32_t local = g_idx - ctx->in_consumed;
 
-        int16_t l0 = data[in_idx * 2];
-        int16_t r0 = data[in_idx * 2 + 1];
-        int16_t l1 = (in_idx + 1 < frames) ? data[(in_idx + 1) * 2] : l0;
-        int16_t r1 = (in_idx + 1 < frames) ? data[(in_idx + 1) * 2 + 1] : r0;
+        int16_t l0 = data[local * 2];
+        int16_t r0 = data[local * 2 + 1];
+        int16_t l1 = (local + 1 < frames) ? data[(local + 1) * 2] : l0;
+        int16_t r1 = (local + 1 < frames) ? data[(local + 1) * 2 + 1] : r0;
 
         int16_t lo = (int16_t)(l0 + (((int32_t)(l1 - l0) * (int32_t)frac) >> 16));
         int16_t ro = (int16_t)(r0 + (((int32_t)(r1 - r0) * (int32_t)frac) >> 16));
@@ -385,9 +397,19 @@ static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t f
             break;
         }
         written_frames++;
-        acc += step;
+        ctx->resample_acc += step;
     }
 
-    ctx->resample_acc = acc;
-    return written_frames;
+    /* Advance the global input cursor only by what this callback consumed.
+     * Return the consumed input frames (<= frames), per the libretro
+     * audio_sample_batch contract. */
+    uint32_t consumed = ctx->resample_acc >> 16;
+    if (consumed < in_start) {
+        consumed = in_start;
+    }
+    if (consumed > in_end) {
+        consumed = in_end;
+    }
+    ctx->in_consumed = consumed;
+    return consumed - in_start;
 }
