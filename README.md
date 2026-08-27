@@ -83,12 +83,16 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 ## 实机截图（T113-S3 板端）
 
-| ROM 选择菜单 | Rick RPG Adventure（homebrew RPG） | BGRotZoomMode3（旋转缩放 demo） |
+| Celeste Classic（可玩平台跳跃） | ROM 选择菜单 | Rick RPG Adventure（homebrew RPG） |
 |---|---|---|
-| ![menu](docs/img/menu.png) | ![rickrpg](docs/img/rickrpg.png) | ![bgrotzoom](docs/img/bgrotzoom.png) |
+| ![celeste](docs/img/celeste.png) | ![menu](docs/img/menu.png) | ![rickrpg](docs/img/rickrpg.png) |
 
-上方 480×320 为 GBA 画面（240×160 放大 2 倍），下方 480×160 为虚拟按键区。
-测试 ROM 来自 [PeterLemon/GBA](https://github.com/PeterLemon/GBA)（homebrew 示例）。
+上方 480×320 为 GBA 画面（240×160 放大 2 倍），下方 480×160 为虚拟按键区，
+触屏可玩（方向键 / A B 等）。测试 ROM 均来自可自由分发的 homebrew：
+
+- [Celeste-Classic-GBA](https://github.com/JeffRuLz/Celeste-Classic-GBA)（完整可玩的平台跳跃）
+- [PeterLemon/GBA](https://github.com/PeterLemon/GBA)（homebrew 示例）
+- Rick RPG Adventure（homebrew RPG）
 
 ## 屏幕布局（480×480）
 
