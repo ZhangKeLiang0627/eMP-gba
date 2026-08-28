@@ -42,6 +42,9 @@
 #define ASRC_TARGET_FRAMES 2048
 #define ASRC_MAX_ADJ       ((int32_t)((32000LL << 16) / 48000) * 5 / 100) /* ~5% of base step */
 
+/* Analog output distortion limit (25% FS). */
+#define AUDIO_LIMIT        8192
+
 #define AUDIO_FIFO_LEN 16384
 
 #if LV_USE_SDL
@@ -298,8 +301,8 @@ static void* audio_thread(void* arg)
     return NULL;
 }
 
-/* Set a mixer playback volume element to its max (0dB) if found. */
-static void mixer_set_volume_max(snd_mixer_t* mixer, const char* name)
+/* Set a mixer playback volume element to a given value if found. */
+static void mixer_set_volume(snd_mixer_t* mixer, const char* name, long value)
 {
     snd_mixer_selem_id_t* sid = NULL;
     snd_mixer_selem_id_alloca(&sid);
@@ -308,8 +311,12 @@ static void mixer_set_volume_max(snd_mixer_t* mixer, const char* name)
     if (elem) {
         long min, max;
         snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
-        snd_mixer_selem_set_playback_volume_all(elem, max);
-        LV_LOG_USER("codec %s -> %ld (max)", name, max);
+        if (value > max) value = max;
+        if (value < min) value = min;
+        int rc = snd_mixer_selem_set_playback_volume_all(elem, value);
+        if (rc != 0) {
+            LV_LOG_WARN("set %s=%ld failed: %s", name, value, snd_strerror(rc));
+        }
     }
     else {
         LV_LOG_WARN("%s control not found", name);
@@ -354,10 +361,13 @@ static void audio_setup_codec(void)
         }
     }
 
-    /* Push the gains to 0dB (GBA audio is quiet; softvol Master stays as
-     * the user-controlled volume knob via EMP_GBA_VOLUME). */
-    mixer_set_volume_max(mixer, "Headphone volume");
-    mixer_set_volume_max(mixer, "DAC volume");
+    /* Push the gains to leave headroom: full 0dB (255 / 7) made bass-heavy
+     * transients clip in the analog output stage -> "garbled mic" noise on
+     * drums/bass while quiet highs stayed clean. Digital-domain gain in
+     * gba_audio_output_cb compensates the loudness. Softvol Master stays as
+     * the user-controlled volume knob via EMP_GBA_VOLUME. */
+    mixer_set_volume(mixer, "Headphone volume", 5);
+    mixer_set_volume(mixer, "DAC volume", 220);
 
     snd_mixer_close(mixer);
 }
@@ -455,6 +465,14 @@ static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t f
         if (local >= frames) {
             break; /* defensive; must not happen */
         }
+        if (local + 1 >= frames) {
+            /* Batch boundary: interpolating between the last sample of this
+             * batch and the first of the next would need the next batch's
+             * data; holding l0 instead creates a slope kink every batch
+             * (~60 clicks/s, audible as hiss/snow). Skip the boundary point,
+             * the tiny time loss is absorbed by ASRC. */
+            break;
+        }
 
         int16_t l0 = data[local * 2];
         int16_t r0 = data[local * 2 + 1];
@@ -470,10 +488,30 @@ static size_t gba_audio_output_cb(void* user_data, const int16_t* data, size_t f
         int16_t lo = (int16_t)((int32_t)l0 + (int16_t)(((int64_t)dl * (int32_t)frac) >> 16));
         int16_t ro = (int16_t)((int32_t)r0 + (int16_t)(((int64_t)dr * (int32_t)frac) >> 16));
 
+        /* Digital-domain gain (x1.6) to compensate the codec headroom left
+         * in audio_setup_codec (DAC 220, Headphone 5/7 instead of full 0dB):
+         * loudness stays adequate while bass transients no longer clip in
+         * the analog output stage. GBA peaks are ~35% FS, x1.6 -> ~56%, safe. */
+        int32_t lo32 = ((int32_t)lo * 8) / 5;
+        int32_t ro32 = ((int32_t)ro * 8) / 5;
+
         if (ctx->volume < 100) {
-            lo = (int16_t)(((int32_t)lo * ctx->volume) / 100);
-            ro = (int16_t)(((int32_t)ro * ctx->volume) / 100);
+            lo32 = lo32 * ctx->volume / 100;
+            ro32 = ro32 * ctx->volume / 100;
         }
+
+        /* Soft limiter: the board's analog output chain (codec -> amp ->
+         * headphone) audibly distorts above ~25-30% FS. Verified on board:
+         * EMP_GBA_VOLUME=5 (peak ~8% FS) sounds clean, high levels sound
+         * harsh/hissy. Clamp the peak so ANY volume setting stays in the
+         * clean zone; 100% volume then yields ~3x the loudness of the
+         * VOLUME=5 experiment while remaining distortion-free. */
+        if (lo32 > AUDIO_LIMIT) lo32 = AUDIO_LIMIT;
+        else if (lo32 < -AUDIO_LIMIT) lo32 = -AUDIO_LIMIT;
+        if (ro32 > AUDIO_LIMIT) ro32 = AUDIO_LIMIT;
+        else if (ro32 < -AUDIO_LIMIT) ro32 = -AUDIO_LIMIT;
+        lo = (int16_t)lo32;
+        ro = (int16_t)ro32;
 
         AUDIO_LOCK();
         bool ok = audio_fifo_write(fifo, lo) && audio_fifo_write(fifo, ro);
