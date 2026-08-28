@@ -162,7 +162,7 @@ static void btn_create(gba_context_t* ctx)
         for (int i = 0; i < GBA_ARRAY_SIZE(btn_dir_map); i++) {
             lv_obj_t* btn = vk_btn_create(cont, btn_dir_map[i].txt);
             btn_arr[i] = btn;
-            lv_obj_set_size(btn, 56, 56);
+            lv_obj_set_size(btn, 51, 51);
             lv_obj_align(btn, btn_dir_map[i].align, 0, 0);
         }
     }
@@ -180,7 +180,7 @@ static void btn_create(gba_context_t* ctx)
         for (int i = 0; i < GBA_ARRAY_SIZE(btn_func_map); i++) {
             lv_obj_t* btn = vk_btn_create(cont, btn_func_map[i].txt);
             btn_arr[i] = btn;
-            lv_obj_set_size(btn, 58, 58);
+            lv_obj_set_size(btn, 51, 51);
             lv_obj_align(btn, btn_func_map[i].align, 0, 0);
         }
     }
@@ -198,7 +198,7 @@ static void btn_create(gba_context_t* ctx)
         for (int i = 0; i < GBA_ARRAY_SIZE(btn_ctrl_map); i++) {
             lv_obj_t* btn = vk_btn_create(cont, btn_ctrl_map[i].txt);
             btn_arr[i] = btn;
-            lv_obj_set_size(btn, 110, 42);
+            lv_obj_set_size(btn, 105, 37);
             lv_obj_align(btn, btn_ctrl_map[i].align, 0, 0);
         }
     }

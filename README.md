@@ -103,6 +103,10 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 |---|---|---|
 | ![celeste](docs/img/celeste.png) | ![menu](docs/img/menu.png) | ![rickrpg](docs/img/rickrpg.png) |
 
+| 虚拟键布局（宝可梦绿宝石游戏内实拍） |
+|---|
+| ![vk_pad](docs/img/vk_pad.png) |
+
 上方 480×320 为 GBA 画面（240×160 放大 2 倍），下方 480×160 为虚拟按键区，
 触屏可玩（方向键 / A B 等）。测试 ROM 均来自可自由分发的 homebrew：
 
@@ -126,7 +130,9 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 虚拟键为纯 `lv_obj`（非 `lv_btn`）：无按压缩放动画，只有 `LV_STATE_PRESSED`
 时背景变亮（`0x37474F` → `0x5A9BD5`，白字始终可读），focus 等其它状态保持默认；
-每个按钮通过 `lv_obj_set_ext_click_area(14)` 扩大触控范围。
+每个按钮通过 `lv_obj_set_ext_click_area(5)` 扩大触控范围。尺寸统一：
+十字键与 A/B/L/R 均为 **51×51**（组盒 150×150，对向键间距一致 ≈49px），
+START/SELECT 为 105×37。
 
 ## 性能优化（T113-S3 实测 60fps）
 
