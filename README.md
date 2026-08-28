@@ -118,10 +118,15 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 │       GBA 画面 480×320       │  ← 240×160 等比放大 2 倍，顶部居中
 │                              │
 ├──────────────────────────────┤
-│   十字键   A B L R  START    │  ← 480×160 操作区（参考 lv_gba_emu）
-│            SELECT            │
+│     十字键    START    A B    │  ← 480×160 操作区
+│    （左居中）  SELECT  L R    │     （右居中）
+│              （居中，上下）   │
 └──────────────────────────────┘
 ```
+
+虚拟键为纯 `lv_obj`（非 `lv_btn`）：无按压缩放动画，只有 `LV_STATE_PRESSED`
+时背景变亮（`0x37474F` → `0x5A9BD5`，白字始终可读），focus 等其它状态保持默认；
+每个按钮通过 `lv_obj_set_ext_click_area(14)` 扩大触控范围。
 
 ## 性能优化（T113-S3 实测 60fps）
 

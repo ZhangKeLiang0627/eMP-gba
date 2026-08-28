@@ -4,9 +4,13 @@
  * Layout (requirement 1):
  *   - GBA native resolution is 240x160. It is scaled 2x to 480x320 and
  *     shown top-center.
- *   - The remaining 480x160 strip at the bottom holds the on-screen
- *     GBA controls (D-pad, A/B/L/R, START/SELECT), mirroring the
- *     control layout of lv_gba_emu.
+ *   - The remaining 480x160 strip at the bottom holds the on-screen GBA
+ *     controls: D-pad left-center, A/B/L/R right-center, START/SELECT
+ *     stacked top/bottom in the center.
+ * Virtual keys are plain lv_obj (not lv_btn): no pressed-scale animation,
+ * bg only changes on LV_STATE_PRESSED (FOCUSED keeps the default), and the
+ * label is white so it stays readable on both the default and the pressed
+ * background. The touch target is enlarged with lv_obj_set_ext_click_area.
  */
 #include "gba_emu.h"
 #include <stdio.h>
@@ -69,8 +73,8 @@ static const btn_map_t btn_func_map[] = {
 };
 
 static const btn_map_t btn_ctrl_map[] = {
-    { "START", LV_ALIGN_LEFT_MID },
-    { "SELECT", LV_ALIGN_RIGHT_MID },
+    { "START", LV_ALIGN_TOP_MID },
+    { "SELECT", LV_ALIGN_BOTTOM_MID },
 };
 
 static uint32_t btn_read_cb(void* user_data)
@@ -102,70 +106,96 @@ static uint32_t btn_read_cb(void* user_data)
     return key_state;
 }
 
+/* Virtual-key button built from a plain lv_obj instead of lv_btn:
+ *  - no pressed-scale animation (lv_obj has none)
+ *  - bg stays dark blue-grey by default (including FOCUSED/other states)
+ *  - on LV_STATE_PRESSED the bg brightens to a lighter blue; white label text
+ *    stays readable on both
+ *  - ext_click_area enlarges the touch target beyond the small widget bounds
+ */
+static lv_obj_t* vk_btn_create(lv_obj_t* parent, const char* text)
+{
+    lv_obj_t* btn = lv_obj_create(parent);
+    lv_obj_remove_style_all(btn);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x37474F), 0);   /* dark blue-grey */
+    lv_obj_set_style_radius(btn, 12, 0);
+    lv_obj_set_style_border_width(btn, 0, 0);
+    lv_obj_set_style_shadow_width(btn, 0, 0);
+
+    /* press feedback only: brighter bg, white text still readable */
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x5A9BD5), LV_STATE_PRESSED);
+
+    /* enlarge the clickable area for small buttons */
+    lv_obj_set_ext_click_area(btn, 14);
+
+    lv_obj_t* label = lv_label_create(btn);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_center(label);
+    return btn;
+}
+
 static void btn_create(gba_context_t* ctx)
 {
     gba_view_t* view = ctx->view;
     lv_obj_t* area = view->btn_area;
     const lv_coord_t cont_size = 130;
 
-    /* D-pad */
+    /* D-pad: left, vertically centered */
     {
         lv_obj_t* cont = lv_obj_create(area);
         view->btn.dir.cont = cont;
+        lv_obj_remove_style_all(cont);
+        lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_size(cont, cont_size, cont_size);
-        lv_obj_set_style_pad_all(cont, 0, 0);
-        lv_obj_set_style_border_width(cont, 0, 0);
-        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+        lv_obj_align(cont, LV_ALIGN_LEFT_MID, 8, 0);
 
         lv_obj_t** btn_arr = &view->btn.dir.up;
         for (int i = 0; i < GBA_ARRAY_SIZE(btn_dir_map); i++) {
-            lv_obj_t* btn = lv_btn_create(cont);
+            lv_obj_t* btn = vk_btn_create(cont, btn_dir_map[i].txt);
             btn_arr[i] = btn;
+            lv_obj_set_size(btn, 56, 56);
             lv_obj_align(btn, btn_dir_map[i].align, 0, 0);
-            lv_obj_t* label = lv_label_create(btn);
-            lv_label_set_text(label, btn_dir_map[i].txt);
-            lv_obj_center(label);
         }
     }
 
-    /* A / B / L / R */
+    /* A / B / L / R: right, vertically centered */
     {
         lv_obj_t* cont = lv_obj_create(area);
         view->btn.func.cont = cont;
+        lv_obj_remove_style_all(cont);
+        lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_size(cont, cont_size, cont_size);
-        lv_obj_set_style_pad_all(cont, 0, 0);
-        lv_obj_set_style_border_width(cont, 0, 0);
-        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+        lv_obj_align(cont, LV_ALIGN_RIGHT_MID, -8, 0);
 
         lv_obj_t** btn_arr = &view->btn.func.A;
         for (int i = 0; i < GBA_ARRAY_SIZE(btn_func_map); i++) {
-            lv_obj_t* btn = lv_btn_create(cont);
+            lv_obj_t* btn = vk_btn_create(cont, btn_func_map[i].txt);
             btn_arr[i] = btn;
+            lv_obj_set_size(btn, 58, 58);
             lv_obj_align(btn, btn_func_map[i].align, 0, 0);
-            lv_obj_t* label = lv_label_create(btn);
-            lv_label_set_text(label, btn_func_map[i].txt);
-            lv_obj_center(label);
         }
     }
 
-    /* START / SELECT */
+    /* START / SELECT: center of the button area, stacked top/bottom */
     {
         lv_obj_t* cont = lv_obj_create(area);
         view->btn.ctrl.cont = cont;
-        lv_obj_set_size(cont, cont_size, LV_SIZE_CONTENT);
-        lv_obj_set_style_pad_row(cont, 10, 0);
-        lv_obj_set_style_pad_all(cont, 0, 0);
-        lv_obj_set_style_border_width(cont, 0, 0);
-        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+        lv_obj_remove_style_all(cont);
+        lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(cont, 120, 96);
+        lv_obj_align(cont, LV_ALIGN_CENTER, 0, 0);
 
         lv_obj_t** btn_arr = &view->btn.ctrl.start;
         for (int i = 0; i < GBA_ARRAY_SIZE(btn_ctrl_map); i++) {
-            lv_obj_t* btn = lv_btn_create(cont);
+            lv_obj_t* btn = vk_btn_create(cont, btn_ctrl_map[i].txt);
             btn_arr[i] = btn;
+            lv_obj_set_size(btn, 110, 42);
             lv_obj_align(btn, btn_ctrl_map[i].align, 0, 0);
-            lv_obj_t* label = lv_label_create(btn);
-            lv_label_set_text(label, btn_ctrl_map[i].txt);
-            lv_obj_center(label);
         }
     }
 
@@ -213,9 +243,8 @@ void gba_view_init(gba_context_t* ctx, lv_obj_t* par, int mode)
         lv_obj_set_size(bottom, GBA_SCREEN_W, GBA_SCREEN_H / 3); /* 480 x 160 */
         lv_obj_align(bottom, LV_ALIGN_BOTTOM_MID, 0, 0);
         lv_obj_set_style_bg_opa(bottom, LV_OPA_TRANSP, 0);
-        lv_obj_set_flex_flow(bottom, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(bottom, LV_FLEX_ALIGN_SPACE_AROUND,
-                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        /* No flex here: the three groups are placed manually in btn_create()
+         * (D-pad left-center, A/B/L/R right-center, START/SELECT center). */
         view->btn_area = bottom;
         btn_create(ctx);
     }
