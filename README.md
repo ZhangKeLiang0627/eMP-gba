@@ -2,9 +2,7 @@
 
 GBA 模拟器（Allwinner T113-S3 / TinaLinux，480×480 屏）。
 
-LVGL v9.4.0 UI + vba-next（libretro GBA 内核）+ ALSA 音频输出，架构参考
-[eMP-tokenMonitor](https://github.com/ZhangKeLiang0627/eMP-tokenMonitor)
-（HAL / Model / View）。
+LVGL v9.4.0 UI + vba-next（libretro GBA 内核）+ ALSA 音频输出。
 
 ## 特性
 
@@ -12,7 +10,6 @@ LVGL v9.4.0 UI + vba-next（libretro GBA 内核）+ ALSA 音频输出，架构�
 - 底部 480×160 区域放置虚拟按键（十字键 / A B L R / START SELECT，布局参考 lv_gba_emu）
 - ALSA 音频输出（PCM `default`，S16_LE 双声道），音量 0-100，可关闭
 - ROM 选择菜单（扫描目录下 `*.gba`），SELECT 长按 2 秒保存存档并返回菜单
-- 架构参考 eMP-tokenMonitor：HAL（fbdev / evdev / FS）、Model（GBA 生命周期 + LVGL 线程）、View（UI 封装）
 
 ## 目录结构
 
@@ -45,8 +42,6 @@ eMP-gba
   - `libs/vba-next` → [FASTSHIFT/vba-next](https://github.com/FASTSHIFT/vba-next) @ `a5e0d8ad`（与 lv_gba_emu 一致的钉定版本，含 `gba_set_rom_size`）
 
 ## 构建
-
-CMake 为主（推荐），`T113_SDK` 默认指向 `/home/hugokkl/eMP-t113-toolchain`。
 
 ```sh
 git clone --recursive https://github.com/ZhangKeLiang0627/eMP-gba.git
