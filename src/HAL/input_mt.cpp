@@ -12,12 +12,30 @@
  *   "Up + A" or "L + R" can be held simultaneously.
  *
  * The Goodix device on this board advertises ABS_MT_POSITION_X/Y and
- * ABS_MT_TRACKING_ID but NOT ABS_MT_SLOT (no MT slot bit in the abs bitmap),
- * i.e. it may use MT protocol A. The parser below is protocol-agnostic:
- *   - If ABS_MT_SLOT is seen (protocol B), it selects the active slot directly.
- *   - Otherwise (protocol A) each ABS_MT_TRACKING_ID is mapped to a stable
- *     slot index so contacts keep a consistent identity across SYN_REPORTs.
- * Legacy single-touch (ABS_X/ABS_Y + BTN_TOUCH) is also handled as slot 0.
+ * ABS_MT_TRACKING_ID but NOT ABS_MT_SLOT (no MT slot bit in the abs bitmap):
+ * it speaks **MT protocol A**, where contacts are delimited by SYN_MT_REPORT
+ * and a contact absent from a frame is considered lifted. Captured on-board
+ * event order per contact is: POSITION_X, POSITION_Y, TOUCH_MAJOR,
+ * WIDTH_MAJOR, TRACKING_ID, then SYN_MT_REPORT (coordinates arrive BEFORE the
+ * tracking id, and the tracking id of each contact is the contact index).
+ *
+ * The parser is protocol-agnostic:
+ *   - If ABS_MT_SLOT is seen (protocol B), coordinates/tracking-id update the
+ *     slot selected by ABS_MT_SLOT directly (release on TRACKING_ID == -1).
+ *   - Otherwise (protocol A) a contact is accumulated between SYN_MT_REPORT
+ *     markers and committed to a slot at SYN_MT_REPORT: slot = tracking id if
+ *     a sane one is present, else the contact's frame order. At SYN_REPORT any
+ *     slot that was not seen in this frame is released (absence == lifted).
+ * Legacy single-touch (ABS_X/ABS_Y + BTN_TOUCH) is handled as slot 0 until
+ * the first MT frame is seen.
+ *
+ * NOTE (why slot identity matters): each POINTER indev reports one slot, and
+ * LVGL treats a pointer that suddenly jumps to another object as a DRAG (it
+ * sends PRESS_LOST to the old object and does NOT send PRESSED to the new one
+ * when the pointer was already pressed). So contacts MUST stay on stable slots
+ * or two-finger presses get eaten. The old tid-mapping parser mapped both
+ * contacts to slot 0 (both tids were reused per frame and x/y arrived before
+ * tid), which swapped contacts between indevs and broke every second press.
  */
 
 #include <errno.h>
@@ -47,16 +65,19 @@ typedef struct {
     int min_x, min_y;       /* calibration input range */
     int max_x, max_y;
     bool saw_slot;          /* protocol B (ABS_MT_SLOT seen)? */
+    bool saw_mt;            /* at least one MT frame (SYN_MT_REPORT) seen? */
 
     /* Parsed state for every contact, refreshed from the event stream. */
-    int cur_slot;                       /* slot in progress this frame */
+    int cur_slot;                       /* protocol B: slot in progress */
     int slot_x[MT_MAX_SLOTS];
     int slot_y[MT_MAX_SLOTS];
     lv_indev_state_t slot_state[MT_MAX_SLOTS];
 
-    /* protocol A: stable mapping tracking_id -> slot index. */
-    int tid_slot[MT_MAX_SLOTS];         /* tid -> slot, -1 = free */
-    int slot_tid[MT_MAX_SLOTS];         /* slot -> tid, -1 = free */
+    /* protocol A: pending contact accumulated between SYN_MT_REPORT markers. */
+    int pending_x, pending_y;           /* -1 = not set */
+    int pending_tid;                    /* -1 = none */
+    int contact_idx;                    /* contacts committed so far in this frame */
+    bool slot_seen[MT_MAX_SLOTS];       /* slots seen in the current frame */
 
     lv_point_t last;        /* last reported point (used on release) */
     int last_active;        /* last printed active-contact count (diag) */
@@ -71,20 +92,29 @@ static int mt_calib(int v, int in_min, int in_max, int out_min, int out_max)
     return v;
 }
 
-static int mt_tid_to_slot(mt_indev_ctx_t * c, int tid)
+/* Protocol A: a SYN_MT_REPORT ended one contact's event group. Commit the
+ * accumulated (x, y, tid) to a slot: prefer the tracking id as the slot index
+ * (stable across frames on this panel: tid == contact index), fall back to the
+ * contact's order in the frame. */
+static void mt_commit_contact(mt_indev_ctx_t * c)
 {
-    /* Already mapped? */
-    for(int s = 0; s < MT_MAX_SLOTS; s++)
-        if(c->tid_slot[s] == tid) return s;
-    /* Allocate a free slot. */
-    for(int s = 0; s < MT_MAX_SLOTS; s++) {
-        if(c->slot_tid[s] < 0) {
-            c->tid_slot[s] = tid;
-            c->slot_tid[s] = tid;
-            return s;
-        }
-    }
-    return MT_MAX_SLOTS - 1; /* all full: reuse last */
+    if(c->pending_x < 0 && c->pending_y < 0) return;
+
+    /* Prefer the tracking id as the slot index (stable across frames on this
+     * panel: tid == contact index). If that slot already holds a contact this
+     * frame (duplicate tid), fall back to the contact's frame order. */
+    int s = (c->pending_tid >= 0 && c->pending_tid < MT_MAX_SLOTS)
+                ? c->pending_tid : c->contact_idx;
+    if(c->slot_seen[s]) s = c->contact_idx;
+    if(s >= MT_MAX_SLOTS) s = MT_MAX_SLOTS - 1;
+
+    c->slot_x[s] = (c->pending_x >= 0) ? c->pending_x : 0;
+    c->slot_y[s] = (c->pending_y >= 0) ? c->pending_y : 0;
+    c->slot_state[s] = LV_INDEV_STATE_PRESSED;
+    c->slot_seen[s] = true;
+    c->contact_idx++;
+
+    c->pending_x = c->pending_y = c->pending_tid = -1;
 }
 
 static void mt_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
@@ -97,7 +127,7 @@ static void mt_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
     while((br = read(c->fd, &in, sizeof(in))) > 0) {
         if(in.type == EV_ABS) {
             switch(in.code) {
-            case ABS_MT_SLOT:
+            case ABS_MT_SLOT: /* protocol B */
                 c->saw_slot = true;
                 if(in.value >= 0 && in.value < MT_MAX_SLOTS)
                     c->cur_slot = in.value;
@@ -106,26 +136,34 @@ static void mt_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
                 break;
 
             case ABS_MT_TRACKING_ID:
-                if(in.value < 0) {
-                    /* contact lifted on the current slot */
-                    if(c->cur_slot < MT_MAX_SLOTS)
+                if(c->saw_slot) {
+                    /* protocol B: press/release the active slot */
+                    if(in.value < 0)
                         c->slot_state[c->cur_slot] = LV_INDEV_STATE_RELEASED;
+                    else
+                        c->slot_state[c->cur_slot] = LV_INDEV_STATE_PRESSED;
                 }
                 else {
-                    if(!c->saw_slot) {
-                        /* protocol A: assign a stable slot for this tid */
-                        c->cur_slot = mt_tid_to_slot(c, in.value);
-                    }
-                    if(c->cur_slot < MT_MAX_SLOTS)
-                        c->slot_state[c->cur_slot] = LV_INDEV_STATE_PRESSED;
+                    /* protocol A: remember the tid of the pending contact */
+                    c->pending_tid = in.value;
                 }
                 break;
 
             case ABS_MT_POSITION_X:
-                if(c->cur_slot < MT_MAX_SLOTS) c->slot_x[c->cur_slot] = in.value;
+                if(c->saw_slot) {
+                    c->slot_x[c->cur_slot] = in.value;
+                }
+                else {
+                    c->pending_x = in.value;   /* coords come BEFORE tid on this panel */
+                }
                 break;
             case ABS_MT_POSITION_Y:
-                if(c->cur_slot < MT_MAX_SLOTS) c->slot_y[c->cur_slot] = in.value;
+                if(c->saw_slot) {
+                    c->slot_y[c->cur_slot] = in.value;
+                }
+                else {
+                    c->pending_y = in.value;
+                }
                 break;
 
             case ABS_X: /* legacy single-touch mirror -> slot 0 */
@@ -140,12 +178,33 @@ static void mt_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
             }
         }
         else if(in.type == EV_KEY && in.code == BTN_TOUCH) {
-            /* single-touch emulation (no MT): drive slot 0 */
-            c->slot_state[0] = (in.value == 0)
-                                 ? LV_INDEV_STATE_RELEASED
-                                 : LV_INDEV_STATE_PRESSED;
+            /* Single-touch emulation: only drive slot 0 while no MT frame has
+             * been seen. Once MT is active, press state is derived from frame
+             * membership (this panel also toggles BTN_TOUCH on multi-finger
+             * transitions, which would otherwise mis-release slot 0). */
+            if(!c->saw_mt) {
+                c->slot_state[0] = (in.value == 0)
+                                     ? LV_INDEV_STATE_RELEASED
+                                     : LV_INDEV_STATE_PRESSED;
+            }
         }
-        /* EV_SYN SYN_REPORT: frame boundary, nothing to flush here. */
+        else if(in.type == EV_SYN && in.code == SYN_MT_REPORT) {
+            if(!c->saw_slot) {
+                c->saw_mt = true;
+                mt_commit_contact(c);
+            }
+        }
+        else if(in.type == EV_SYN && in.code == SYN_REPORT) {
+            if(!c->saw_slot) {
+                /* Protocol A: a contact that was not in this frame is lifted. */
+                for(int s = 0; s < MT_MAX_SLOTS; s++) {
+                    if(!c->slot_seen[s])
+                        c->slot_state[s] = LV_INDEV_STATE_RELEASED;
+                    c->slot_seen[s] = false;
+                }
+                c->contact_idx = 0;
+            }
+        }
     }
 
     /* Report the contact assigned to this indev. */
@@ -199,13 +258,14 @@ void InitMultiTouchInput(void)
         c->fd = fd;
         c->slot = i;
         c->cur_slot = 0;
-    c->last.x = 0;
-    c->last.y = 0;
-    c->last_active = -1;
+        c->pending_x = c->pending_y = c->pending_tid = -1;
+        c->contact_idx = 0;
+        c->last.x = 0;
+        c->last.y = 0;
+        c->last_active = -1;
         for(int s = 0; s < MT_MAX_SLOTS; s++) {
             c->slot_state[s] = LV_INDEV_STATE_RELEASED;
-            c->slot_tid[s] = -1;
-            c->tid_slot[s] = -1;
+            c->slot_seen[s] = false;
         }
 
         /* Calibration range: prefer the MT position axes (this panel only

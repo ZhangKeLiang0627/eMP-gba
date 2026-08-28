@@ -88,12 +88,14 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 ## 输入（多点触控，板端实测）
 
-- 触摸屏为 Goodix `gt9xxnew_ts`（/dev/input/event1），内核以 **MT protocol**（ABS_MT_POSITION_X/Y + ABS_MT_TRACKING_ID）上报，硬件支持多点。
+- 触摸屏为 Goodix `gt9xxnew_ts`（/dev/input/event1），内核以 **MT protocol A** 上报：触点间用 `SYN_MT_REPORT` 分隔，每个触点事件组为 `POSITION_X → POSITION_Y → TOUCH_MAJOR → WIDTH_MAJOR → TRACKING_ID`（**坐标先于 tid 到达**，tid 即触点序号 0/1），且**从不发送 `TRACKING_ID=-1`**——触点抬起 = 该触点从帧中消失。
 - LVGL 内建 `lv_evdev` 驱动的指针回调只上报 `touch_data[0]`（slot 0），无法暴露第二个触点。因此 `src/HAL/input_mt.cpp` 自建 MT 读取：`HAL::InitMultiTouchInput()` 为**每个触点各开一个独立 POINTER indev**（默认 2，见 `GBA_INPUT_TOUCH_POINTS`），每个 indev 的 read 回调上报其分配的 slot。
-- 解析器协议无关：见到 `ABS_MT_SLOT` 走 protocol B（直接选 slot）；否则按 `ABS_MT_TRACKING_ID → slot` 做稳定映射（protocol A）。单指 legacy（ABS_X/ABS_Y + BTN_TOUCH）也归到 slot 0。
+- 解析器协议无关且**触点身份稳定**：见到 `ABS_MT_SLOT` 走 protocol B（直接选 slot）；否则（protocol A）在 `SYN_MT_REPORT` 处把累积的（x, y, tid）提交给 slot（tid 优先、帧序兜底），`SYN_REPORT` 时**帧内未出现的 slot 置为抬起**。单指 legacy（ABS_X/ABS_Y + BTN_TOUCH）在首个 MT 帧前归 slot 0。
+  - **为什么触点身份稳定很关键**：LVGL 把"已按下指针跳到另一对象"判定为拖拽（旧对象收 `PRESS_LOST`、新对象**不发** `PRESSED`）。旧解析器按 tid 映射 slot，但坐标先于 tid 到达导致两个触点都挤进 slot 0、indev 之间触点互换——双指时按住键被释放、新按的键不生效（症状：第二指按键无反应）。板端抓包（mt_probe）定位后按上述规则重写，slot0 恒定 = 先接触的手指、slot1 = 后接触的手指。
 - 校准范围取 `EVIOCGABS(ABS_MT_POSITION_X/Y)`（本板为 `[0,480]×[0,480]`，与 480×480 显示 1:1）；若该轴缺失则回退 ABS_X/ABS_Y，再回退显示尺寸。
 - 因为是**多个独立指针 indev**，LVGL 会把不同手指独立 hit-test 到不同虚拟键——`btn_read_cb` 轮询各 `lv_btn` 的 `LV_STATE_PRESSED`——所以**两个虚拟键可同时按住**（如「↑ + A」「L + R」），互不干扰。需要更多同时按键时把 `GBA_INPUT_TOUCH_POINTS` 调大即可。
 - 运行时日志（stderr）：启动时打印每个 indev 的 fd 与校准范围；触点数量变化时打印 `[MT] active contacts = N`，方便确认双指是否被正确识别。
+- `tools/mt_probe.c`：板端 MT 原始事件/解析器状态探针（交叉编译 `arm-openwrt-linux-muslgnueabi-gcc -O2 -static`），用于排查触摸协议。
 
 ## 实机截图（T113-S3 板端）
 
