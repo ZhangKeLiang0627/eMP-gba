@@ -129,8 +129,9 @@ static lv_obj_t* vk_btn_create(lv_obj_t* parent, const char* text)
     /* press feedback only: brighter bg, white text still readable */
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x5A9BD5), LV_STATE_PRESSED);
 
-    /* enlarge the clickable area for small buttons */
-    lv_obj_set_ext_click_area(btn, 14);
+    /* enlarge the clickable area for small buttons (5px, keep adjacent
+     * buttons' touch targets from overlapping) */
+    lv_obj_set_ext_click_area(btn, 5);
 
     lv_obj_t* label = lv_label_create(btn);
     lv_label_set_text(label, text);
@@ -143,7 +144,10 @@ static void btn_create(gba_context_t* ctx)
 {
     gba_view_t* view = ctx->view;
     lv_obj_t* area = view->btn_area;
-    const lv_coord_t cont_size = 130;
+    /* 150x150 group boxes spread the four cross keys / A-B-L-R further apart
+     * than the old 130x130 (buttons keep their size, only the spacing grows).
+     * Fits the 480x160 strip: 150 < 160, vertically centered leaves 5px. */
+    const lv_coord_t cont_size = 150;
 
     /* D-pad: left, vertically centered */
     {
