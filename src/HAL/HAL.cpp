@@ -17,6 +17,8 @@
 extern "C" {
 #include "lvgl/lvgl.h"
 #include "lvgl/src/drivers/display/fb/lv_linux_fbdev.h"
+/* Original single-touch evdev driver (kept for reference / fallback):
+ * #include "lvgl/src/drivers/evdev/lv_evdev.h" */
 void lv_fs_posix_init(void);
 }
 
@@ -41,6 +43,8 @@ void HAL::Init(void)
 
     /* Touchscreen via evdev -- multi-touch: one POINTER indev per contact
      * so two fingers can press two virtual keys at once. */
+    /* Original single-touch init (kept for reference / fallback):
+     * lv_indev_t * indev = lv_evdev_create(LV_INDEV_TYPE_POINTER, "/dev/input/event1"); */
     HAL::InitMultiTouchInput();
 
     /* Register exit signal handler */
