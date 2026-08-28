@@ -10,6 +10,7 @@ LVGL v9.4.0 UI + vba-next（libretro GBA 内核）+ ALSA 音频输出。
 - 底部 480×160 区域放置虚拟按键（十字键 / A B L R / START SELECT，布局参考 lv_gba_emu）
 - ALSA 音频输出（PCM `default`，S16_LE 双声道），音量 0-100，可关闭
 - ROM 选择菜单（扫描目录下 `*.gba`），SELECT 长按 2 秒保存存档并返回菜单
+- 多点触控输入（Goodix 触摸屏，2 个独立指针 indev），可**双指同时按下两个虚拟键**（如 ↑+A、L+R）
 
 ## 目录结构
 
@@ -84,6 +85,15 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 - 应用启动音频时自动配置 codec 输出：打开 **Headphone Switch**（板子默认开机静音），并把 **Headphone volume / DAC volume 拉到 0dB**（默认 4/7 约 -18dB + 160/255，GBA 音频动态小会听不清）。Soft Volume Master 保留为系统音量旋钮，`amixer cset numid=17 N` 可微调耳机音量（0-7）
 - `EMP_GBA_VOLUME` 控制软件音量（重采样时缩放），0 关闭音频
 - 若某 ROM 无声：先换有音乐的游戏验证（如 Celeste）——**个别 ROM（如 ace1.gba）核心输出的原始音频本身就是 0**，与播放链路无关；`aplay /tmp/tone.wav` 可验证板子链路；听感偏小可 `amixer cset numid=17 7`（Headphone volume 0-7）
+
+## 输入（多点触控，板端实测）
+
+- 触摸屏为 Goodix `gt9xxnew_ts`（/dev/input/event1），内核以 **MT protocol**（ABS_MT_POSITION_X/Y + ABS_MT_TRACKING_ID）上报，硬件支持多点。
+- LVGL 内建 `lv_evdev` 驱动的指针回调只上报 `touch_data[0]`（slot 0），无法暴露第二个触点。因此 `src/HAL/input_mt.cpp` 自建 MT 读取：`HAL::InitMultiTouchInput()` 为**每个触点各开一个独立 POINTER indev**（默认 2，见 `GBA_INPUT_TOUCH_POINTS`），每个 indev 的 read 回调上报其分配的 slot。
+- 解析器协议无关：见到 `ABS_MT_SLOT` 走 protocol B（直接选 slot）；否则按 `ABS_MT_TRACKING_ID → slot` 做稳定映射（protocol A）。单指 legacy（ABS_X/ABS_Y + BTN_TOUCH）也归到 slot 0。
+- 校准范围取 `EVIOCGABS(ABS_MT_POSITION_X/Y)`（本板为 `[0,480]×[0,480]`，与 480×480 显示 1:1）；若该轴缺失则回退 ABS_X/ABS_Y，再回退显示尺寸。
+- 因为是**多个独立指针 indev**，LVGL 会把不同手指独立 hit-test 到不同虚拟键——`btn_read_cb` 轮询各 `lv_btn` 的 `LV_STATE_PRESSED`——所以**两个虚拟键可同时按住**（如「↑ + A」「L + R」），互不干扰。需要更多同时按键时把 `GBA_INPUT_TOUCH_POINTS` 调大即可。
+- 运行时日志（stderr）：启动时打印每个 indev 的 fd 与校准范围；触点数量变化时打印 `[MT] active contacts = N`，方便确认双指是否被正确识别。
 
 ## 实机截图（T113-S3 板端）
 

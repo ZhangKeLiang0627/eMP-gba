@@ -17,7 +17,6 @@
 extern "C" {
 #include "lvgl/lvgl.h"
 #include "lvgl/src/drivers/display/fb/lv_linux_fbdev.h"
-#include "lvgl/src/drivers/evdev/lv_evdev.h"
 void lv_fs_posix_init(void);
 }
 
@@ -40,8 +39,9 @@ void HAL::Init(void)
     lv_linux_fbdev_set_file(disp, "/dev/fb0");
     lv_linux_fbdev_set_force_refresh(disp, false);
 
-    /* Touchscreen via evdev */
-    lv_indev_t * indev = lv_evdev_create(LV_INDEV_TYPE_POINTER, "/dev/input/event1");
+    /* Touchscreen via evdev -- multi-touch: one POINTER indev per contact
+     * so two fingers can press two virtual keys at once. */
+    HAL::InitMultiTouchInput();
 
     /* Register exit signal handler */
     install_signal_handler();
