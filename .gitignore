@@ -13,3 +13,6 @@ build/
 # editor
 .vscode/
 .idea/
+
+# cross-compiled board tools (source in tools/*.c)
+tools/mt_probe
