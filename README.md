@@ -106,16 +106,16 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 - **ROM 菜单页**：顶部栏**常驻**（不可通过手势收回），**所有手势禁用**（音量条也不可手势呼出）。「退出」退出整个应用。
 - **游戏页**：顶部栏与音量条初始隐藏，手势可用：
-  - **下滑** → 顶部栏滑入（宽 90%、浅灰条，eMP-video topCont 风格）：**截图 / 音量 / 退出** 三个按钮（SmileySans 中文文字）
+  - **下滑** → 顶部栏滑入（宽 90%、浅灰条，eMP-video topCont 风格）：**截图 / 音量 / x** 三个按钮（54×34，SmileySans，退出用红色小写 `x`）
   - **上滑** → 顶部栏收回（音量条开着时也可收回）
-  - **左划** → 音量条从右侧滑入：样式照抄 eMP-video `sliderContCreate()`（容器 `#eeeeee` 90% 圆角 10、轨道 `#3c9ba6`、指示 `#a4d9b2`、旋钮 `#445588` 灰边圆钮，含 `LV_SYMBOL_VOLUME_MAX` 图标），竖向 0-100 滑块拖动实时调用 `gba_audio_set_volume`
+  - **左划** → 音量条从右侧滑入（距右边缘 10px）：样式照抄 eMP-video `sliderContCreate()`（容器 `#eeeeee` 90% 圆角 10、轨道 `#3c9ba6`、指示 `#a4d9b2`、**旋钮透明**——直接上下滑轨道调音量，含 `LV_SYMBOL_VOLUME_MAX` 图标），竖向 0-100 滑块拖动实时调用 `gba_audio_set_volume`
   - **右划** → 音量条收回
 - 音量条打开时**忽略下滑**（避免拖动滑块误呼出顶部栏）；顶部栏「音量」按钮也可开关音量条。
 - 顶部栏按钮：
   - **截图**：抓取 `/dev/fb0` 当前可见页，写出 24-bit BMP 到 `/root/screenshot_<时间戳>.bmp`
   - **音量**：开关音量条
-  - **退出**：返回 ROM 选择菜单（同 SELECT 长按）
-- 手势由多点触控驱动（`input_mt.cpp`）按触点轨迹检测，滑动超过 **90px** 触发一次（单指）；滑动动画 `lv_anim` 280ms ease-out。
+  - **x（退出）**：返回 ROM 选择菜单（同 SELECT 长按）
+- 手势由多点触控驱动（`input_mt.cpp`）按触点轨迹检测，滑动超过 **90px** 触发一次（单指）；进出场动画照抄 eMP-video：**500ms ease-out + 展开效果**（顶栏下滑时从 20px 宽展开、音量条滑入时从 30px 高展开）。
 - 滑动回调生命周期：**退出游戏时自动清空全局 swipe 回调**（`gba_emu` 删除时 `lv_gba_emu_set_swipe_cb(NULL, NULL)`），避免菜单页滑动踩到已释放的模拟器上下文（旧版在此场景偶发 SIGSEGV，已修复）。
 - LVGL v9 注意：已对齐对象 `lv_obj_set_x/y` 设置的是**相对对齐的偏移**，进出场动画须用 `lv_obj_set_pos` 绝对定位；菜单页的悬浮层要挂在**普通容器**（非 `lv_list`，其 flex 布局会打乱悬浮对象）。
 

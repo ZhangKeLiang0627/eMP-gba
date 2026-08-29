@@ -20,8 +20,10 @@
 #include <stdio.h>
 
 #define OVERLAY_TOP_BAR_H   38
-#define OVERLAY_VOL_BAR_W   144
+#define OVERLAY_VOL_BAR_W   124   /* 144 - 20: narrower body */
 #define OVERLAY_VOL_BAR_H   192
+#define OVERLAY_VOL_BAR_X   (GBA_SCREEN_W - OVERLAY_VOL_BAR_W - 10)  /* 10px off the right edge */
+#define OVERLAY_ANIM_TIME   500   /* eMP-video: 500ms ease-out */
 
 /* --------------------------------------------------------------------------
  * small helpers
@@ -76,14 +78,13 @@ static lv_obj_t* vol_slider_create(lv_obj_t* parent)
     lv_obj_set_size(obj, lv_pct(40), lv_pct(90));
     lv_obj_align(obj, LV_ALIGN_CENTER, 0, -6);
 
-    /* knob */
-    lv_obj_set_style_border_width(obj, 3, LV_PART_KNOB);
-    lv_obj_set_style_border_color(obj, lv_color_hex(0xbbbbbb), LV_PART_KNOB);
-    lv_obj_set_style_pad_all(obj, 1, LV_PART_KNOB);
+    /* knob: transparent (like eMP-video's brightnessSlider) - drag directly
+     * on the track, no visible thumb */
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_KNOB | LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(obj, 0, LV_PART_KNOB);
     lv_obj_set_style_radius(obj, 10, LV_PART_KNOB);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_KNOB | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_60, LV_PART_KNOB | LV_STATE_PRESSED);
-    lv_obj_set_style_bg_color(obj, lv_color_hex(0x445588), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(obj, 1, LV_PART_KNOB);
 
     /* main track */
     lv_obj_set_style_radius(obj, 8, LV_PART_MAIN);
@@ -106,32 +107,35 @@ static lv_obj_t* vol_slider_create(lv_obj_t* parent)
  * show / hide
  * ------------------------------------------------------------------------ */
 
+/* eMP-video style enter/exit: 500ms ease-out with an "expand" effect -
+ * the top bar slides down while growing from 20px wide, the volume bar
+ * slides in while growing from 30px tall (mirrors wrapperTop/wrapperSlider). */
 static void top_bar_show(gba_overlay_t* ov)
 {
     ov->top_visible = true;
-    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_y,
-                 -OVERLAY_TOP_BAR_H, 0, 280);
+    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_y, -40, 0, OVERLAY_ANIM_TIME);
+    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_width, 20, GBA_SCREEN_W * 9 / 10, OVERLAY_ANIM_TIME);
 }
 
 static void top_bar_hide(gba_overlay_t* ov)
 {
     ov->top_visible = false;
-    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_y,
-                 0, -OVERLAY_TOP_BAR_H, 280);
+    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_y, 0, -40, OVERLAY_ANIM_TIME);
+    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_width, GBA_SCREEN_W * 9 / 10, 20, OVERLAY_ANIM_TIME);
 }
 
 static void vol_bar_show(gba_overlay_t* ov)
 {
     ov->vol_visible = true;
-    gba_anim_obj(ov->vol_bar, (lv_anim_exec_xcb_t)lv_obj_set_x,
-                 GBA_SCREEN_W, GBA_SCREEN_W - OVERLAY_VOL_BAR_W, 280);
+    gba_anim_obj(ov->vol_bar, (lv_anim_exec_xcb_t)lv_obj_set_x, GBA_SCREEN_W, OVERLAY_VOL_BAR_X, OVERLAY_ANIM_TIME);
+    gba_anim_obj(ov->vol_bar, (lv_anim_exec_xcb_t)lv_obj_set_height, 30, OVERLAY_VOL_BAR_H, OVERLAY_ANIM_TIME);
 }
 
 static void vol_bar_hide(gba_overlay_t* ov)
 {
     ov->vol_visible = false;
-    gba_anim_obj(ov->vol_bar, (lv_anim_exec_xcb_t)lv_obj_set_x,
-                 GBA_SCREEN_W - OVERLAY_VOL_BAR_W, GBA_SCREEN_W, 280);
+    gba_anim_obj(ov->vol_bar, (lv_anim_exec_xcb_t)lv_obj_set_x, OVERLAY_VOL_BAR_X, GBA_SCREEN_W, OVERLAY_ANIM_TIME);
+    gba_anim_obj(ov->vol_bar, (lv_anim_exec_xcb_t)lv_obj_set_height, OVERLAY_VOL_BAR_H, 30, OVERLAY_ANIM_TIME);
 }
 
 /* --------------------------------------------------------------------------
@@ -238,24 +242,24 @@ gba_overlay_t* gba_overlay_create(lv_obj_t* root,
     /* absolute position (no alignment: set_x/y on an aligned object is a
      * relative offset which confused the hide/show animation) */
     lv_obj_set_pos(bar, (GBA_SCREEN_W - GBA_SCREEN_W * 9 / 10) / 2,
-                   top_pinned ? 0 : -OVERLAY_TOP_BAR_H);
+                   top_pinned ? 0 : -40);
     lv_obj_set_style_bg_opa(bar, LV_OPA_90, 0);
     lv_obj_set_style_bg_color(bar, lv_color_hex(0xEEEEEE), 0);
     lv_obj_set_style_radius(bar, 5, 0);
     ov->top_bar = bar;
     ov->top_visible = top_pinned;
 
-    lv_obj_t* b = overlay_btn_create(bar, "截图", lv_color_hex(0x0078BA), lv_color_hex(0x005E93), 64, 34);
+    lv_obj_t* b = overlay_btn_create(bar, "截图", lv_color_hex(0x0078BA), lv_color_hex(0x005E93), 54, 34);
     lv_obj_align(b, LV_ALIGN_LEFT_MID, 10, 0);
     lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, ov);
     ov->top_screenshot_btn = b;
 
-    b = overlay_btn_create(bar, "音量", lv_color_hex(0x4EA35A), lv_color_hex(0x3D8346), 64, 34);
-    lv_obj_align(b, LV_ALIGN_LEFT_MID, 84, 0);
+    b = overlay_btn_create(bar, "音量", lv_color_hex(0x4EA35A), lv_color_hex(0x3D8346), 54, 34);
+    lv_obj_align(b, LV_ALIGN_LEFT_MID, 74, 0);
     lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, ov);
     ov->top_volume_btn = b;
 
-    b = overlay_btn_create(bar, "退出", lv_color_hex(0xFF6056), lv_color_hex(0xE44543), 64, 34);
+    b = overlay_btn_create(bar, "x", lv_color_hex(0xFF6056), lv_color_hex(0xE44543), 54, 34);
     lv_obj_align(b, LV_ALIGN_RIGHT_MID, -10, 0);
     lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, ov);
     ov->top_exit_btn = b;
@@ -265,7 +269,8 @@ gba_overlay_t* gba_overlay_create(lv_obj_t* root,
     lv_obj_remove_style_all(vbar);
     lv_obj_clear_flag(vbar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(vbar, OVERLAY_VOL_BAR_W, OVERLAY_VOL_BAR_H);
-    /* top-right (-20, 60) in absolute coords, off-screen right when hidden */
+    /* absolute coords: visible at OVERLAY_VOL_BAR_X (=10px off the right
+     * edge, y=60), off-screen right (x=GBA_SCREEN_W) when hidden */
     lv_obj_set_pos(vbar, GBA_SCREEN_W, 60);
     lv_obj_set_style_bg_opa(vbar, LV_OPA_90, 0);
     lv_obj_set_style_bg_color(vbar, lv_color_hex(0xEEEEEE), 0);
