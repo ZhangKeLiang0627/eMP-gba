@@ -16,3 +16,4 @@ build/
 
 # cross-compiled board tools (source in tools/*.c)
 tools/mt_probe
+tools/evswipe

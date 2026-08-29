@@ -13,8 +13,10 @@
  * background. The touch target is enlarged with lv_obj_set_ext_click_area.
  */
 #include "gba_emu.h"
-#include <stdio.h>
+#include "gba_font.h"
 #include "gba_internal.h"
+#include "port.h"
+#include <stdio.h>
 
 struct gba_view_s {
     lv_obj_t* root;
@@ -27,6 +29,19 @@ struct gba_view_s {
 
     /* bottom 480x160 button container */
     lv_obj_t* btn_area;
+
+    /* gesture overlays: top bar + volume bar (off-screen until swiped in) */
+    struct {
+        lv_obj_t* top_bar;      /* top: 截图 / 音量 / 退出 */
+        lv_obj_t* top_screenshot_btn;
+        lv_obj_t* top_volume_btn;
+        lv_obj_t* top_exit_btn;
+        lv_obj_t* vol_bar;      /* right: vertical volume slider */
+        lv_obj_t* vol_slider;
+        lv_obj_t* vol_label;
+        bool top_visible;
+        bool vol_visible;
+    } overlay;
 
     struct {
         struct {
@@ -206,6 +221,208 @@ static void btn_create(gba_context_t* ctx)
     lv_gba_emu_add_input_read_cb(view->root, btn_read_cb, view);
 }
 
+/* ==================== gesture overlays (top bar / volume bar) ====================
+ * Swipe down  -> slide the top bar in (上滑收回)
+ * Swipe up    -> slide the top bar out
+ * Swipe left  -> slide the volume bar in (右划收回)
+ * Swipe right -> slide the volume bar out
+ * Gestures come from the multi-touch input driver (input_mt.cpp swipe
+ * detection) via lv_gba_emu_set_swipe_cb().
+ */
+
+static void gba_anim_obj(lv_obj_t* obj, lv_anim_exec_xcb_t exec, int32_t from, int32_t to, uint32_t time)
+{
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, obj);
+    lv_anim_set_exec_cb(&a, exec);
+    lv_anim_set_values(&a, from, to);
+    lv_anim_set_time(&a, time);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
+
+static lv_obj_t* overlay_btn_create(lv_obj_t* parent, const char* text,
+                                    lv_color_t bg, lv_color_t pressed, int w, int h)
+{
+    lv_obj_t* btn = lv_obj_create(parent);
+    lv_obj_remove_style_all(btn);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(btn, w, h);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(btn, bg, 0);
+    lv_obj_set_style_bg_color(btn, pressed, LV_STATE_PRESSED);
+    lv_obj_set_style_radius(btn, 8, 0);
+    lv_obj_set_style_border_width(btn, 0, 0);
+    lv_obj_set_style_shadow_width(btn, 0, 0);
+    lv_obj_set_ext_click_area(btn, 8);
+
+    lv_obj_t* label = lv_label_create(btn);
+    lv_font_t* f = gba_font_get(18);
+    if (f) lv_obj_set_style_text_font(label, f, 0);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_center(label);
+    return btn;
+}
+
+static void top_bar_show(gba_view_t* view)
+{
+    view->overlay.top_visible = true;
+    gba_anim_obj(view->overlay.top_bar, (lv_anim_exec_xcb_t)lv_obj_set_y, -48, 0, 280);
+}
+
+static void top_bar_hide(gba_view_t* view)
+{
+    view->overlay.top_visible = false;
+    gba_anim_obj(view->overlay.top_bar, (lv_anim_exec_xcb_t)lv_obj_set_y, 0, -48, 280);
+}
+
+static void vol_bar_show(gba_view_t* view)
+{
+    view->overlay.vol_visible = true;
+    gba_anim_obj(view->overlay.vol_bar, (lv_anim_exec_xcb_t)lv_obj_set_x,
+                 GBA_SCREEN_W, GBA_SCREEN_W - 160, 280);
+}
+
+static void vol_bar_hide(gba_view_t* view)
+{
+    view->overlay.vol_visible = false;
+    gba_anim_obj(view->overlay.vol_bar, (lv_anim_exec_xcb_t)lv_obj_set_x,
+                 GBA_SCREEN_W - 160, GBA_SCREEN_W, 280);
+}
+
+static void overlay_event_cb(lv_event_t* e)
+{
+    gba_view_t* view = (gba_view_t*)lv_event_get_user_data(e);
+    lv_obj_t* btn = lv_event_get_current_target(e);
+    if (view == NULL) return;
+
+    if (btn == view->overlay.top_screenshot_btn) {
+        gba_screenshot_capture(NULL);
+    }
+    else if (btn == view->overlay.top_volume_btn) {
+        if (view->overlay.vol_visible)
+            vol_bar_hide(view);
+        else
+            vol_bar_show(view);
+    }
+    else if (btn == view->overlay.top_exit_btn) {
+        gba_context_t* ctx = (gba_context_t*)lv_obj_get_user_data(view->root);
+        if (ctx && ctx->exit_cb) {
+            ctx->exit_cb(ctx->exit_cb_user_data);
+        }
+    }
+}
+
+static void vol_slider_event_cb(lv_event_t* e)
+{
+    gba_view_t* view = (gba_view_t*)lv_event_get_user_data(e);
+    lv_obj_t* slider = lv_event_get_current_target(e);
+    if (view == NULL) return;
+
+    if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+        int v = (int)lv_slider_get_value(slider);
+        gba_audio_set_volume(v);
+        lv_label_set_text_fmt(view->overlay.vol_label, "音量 %d", v);
+    }
+}
+
+static void gba_swipe_cb(lv_dir_t dir, void* user_data)
+{
+    gba_context_t* ctx = (gba_context_t*)user_data;
+    if (ctx == NULL || ctx->view == NULL) return;
+    gba_view_t* view = ctx->view;
+
+    /* While the volume bar is open, ignore vertical swipes so a slider drag
+     * (also vertical) does not flip the top bar. Close it via right-swipe. */
+    switch (dir) {
+    case LV_DIR_BOTTOM:
+        if (!view->overlay.top_visible && !view->overlay.vol_visible) top_bar_show(view);
+        break;
+    case LV_DIR_TOP:
+        if (view->overlay.top_visible && !view->overlay.vol_visible) top_bar_hide(view);
+        break;
+    case LV_DIR_LEFT:
+        if (!view->overlay.vol_visible) vol_bar_show(view);
+        break;
+    case LV_DIR_RIGHT:
+        if (view->overlay.vol_visible) vol_bar_hide(view);
+        break;
+    default:
+        break;
+    }
+}
+
+static void overlay_create(gba_context_t* ctx)
+{
+    gba_view_t* view = ctx->view;
+    lv_obj_t* root = view->root;
+
+    /* ---- top bar (hidden at y=-48) ---- */
+    lv_obj_t* bar = lv_obj_create(root);
+    lv_obj_remove_style_all(bar);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(bar, GBA_SCREEN_W, 48);
+    lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_y(bar, -48);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_90, 0);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0xEEEEEE), 0);
+    lv_obj_set_style_radius(bar, 8, 0);
+    view->overlay.top_bar = bar;
+
+    lv_obj_t* b = overlay_btn_create(bar, "截图", lv_color_hex(0x0078BA), lv_color_hex(0x005E93), 64, 34);
+    lv_obj_align(b, LV_ALIGN_LEFT_MID, 10, 0);
+    lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, view);
+    view->overlay.top_screenshot_btn = b;
+
+    b = overlay_btn_create(bar, "音量", lv_color_hex(0x4EA35A), lv_color_hex(0x3D8346), 64, 34);
+    lv_obj_align(b, LV_ALIGN_LEFT_MID, 84, 0);
+    lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, view);
+    view->overlay.top_volume_btn = b;
+
+    b = overlay_btn_create(bar, "退出", lv_color_hex(0xFF6056), lv_color_hex(0xE44543), 64, 34);
+    lv_obj_align(b, LV_ALIGN_RIGHT_MID, -10, 0);
+    lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, view);
+    view->overlay.top_exit_btn = b;
+
+    /* ---- volume bar (hidden at x=480) ---- */
+    lv_obj_t* vbar = lv_obj_create(root);
+    lv_obj_remove_style_all(vbar);
+    lv_obj_clear_flag(vbar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(vbar, 160, 200);
+    /* Absolute position (no alignment: lv_obj_set_x on an aligned object sets
+     * an offset relative to the alignment, which confused the hide/show). */
+    lv_obj_set_pos(vbar, GBA_SCREEN_W, 8);   /* off-screen right */
+    lv_obj_set_style_bg_opa(vbar, LV_OPA_90, 0);
+    lv_obj_set_style_bg_color(vbar, lv_color_hex(0xEEEEEE), 0);
+    lv_obj_set_style_radius(vbar, 12, 0);
+    view->overlay.vol_bar = vbar;
+
+    lv_obj_t* slider = lv_slider_create(vbar);
+    lv_obj_set_size(slider, 24, 140);
+    lv_obj_align(slider, LV_ALIGN_CENTER, 0, -8);
+    lv_slider_set_range(slider, 0, 100);
+    lv_slider_set_value(slider, gba_audio_get_volume(), LV_ANIM_OFF);
+    lv_obj_add_event_cb(slider, vol_slider_event_cb, LV_EVENT_VALUE_CHANGED, view);
+    view->overlay.vol_slider = slider;
+
+    lv_obj_t* lab = lv_label_create(vbar);
+    lv_font_t* f = gba_font_get(18);
+    if (f) lv_obj_set_style_text_font(lab, f, 0);
+    lv_label_set_text_fmt(lab, "音量 %d", (int)gba_audio_get_volume());
+    lv_obj_align(lab, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_style_text_color(lab, lv_color_black(), 0);
+    view->overlay.vol_label = lab;
+
+    view->overlay.top_visible = false;
+    view->overlay.vol_visible = false;
+
+    /* swipe gestures -> show/hide the overlays */
+    lv_gba_emu_set_swipe_cb(gba_swipe_cb, ctx);
+}
+
 void gba_view_init(gba_context_t* ctx, lv_obj_t* par, int mode)
 {
     gba_view_t* view = lv_malloc(sizeof(gba_view_t));
@@ -252,6 +469,9 @@ void gba_view_init(gba_context_t* ctx, lv_obj_t* par, int mode)
         view->btn_area = bottom;
         btn_create(ctx);
     }
+
+    /* gesture overlays: top bar (exit/screenshot/volume) + volume slider */
+    overlay_create(ctx);
 }
 
 void gba_view_deinit(gba_context_t* ctx)

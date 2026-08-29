@@ -4,6 +4,7 @@
  * the caller. Adapted from lv_gba_emu (CJK font dependency removed).
  */
 #include "gba_emu.h"
+#include "gba_font.h"
 #include "gba_menu.h"
 
 typedef struct {
@@ -95,6 +96,9 @@ void gba_menu_create(lv_obj_t* parent, const char* dir_path, gba_menu_select_cb_
                 lv_obj_t* label = lv_obj_get_child(btn, 0);
                 if (label) {
                     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+                    /* CJK-capable font so Chinese ROM names render properly */
+                    lv_font_t* f = gba_font_get(16);
+                    if (f) lv_obj_set_style_text_font(label, f, 0);
                 }
                 count++;
             }

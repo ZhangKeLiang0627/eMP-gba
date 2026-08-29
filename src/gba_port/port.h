@@ -38,6 +38,11 @@ void gba_port_init(lv_obj_t* gba_emu);
 int gba_audio_init(lv_obj_t* gba_emu);
 void gba_audio_deinit(lv_obj_t* gba_emu);
 void gba_audio_set_volume(int volume);
+int  gba_audio_get_volume(void);
+
+/* Grab the current framebuffer (visible page of /dev/fb0) and write it as a
+ * 24-bit BMP. Returns 0 on success, -1 on error. */
+int gba_screenshot_capture(const char* path);
 
 /**********************
  *      MACROS

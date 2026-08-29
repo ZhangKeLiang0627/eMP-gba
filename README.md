@@ -11,6 +11,8 @@ LVGL v9.4.0 UI + vba-next（libretro GBA 内核）+ ALSA 音频输出。
 - ALSA 音频输出（PCM `default`，S16_LE 双声道），音量 0-100，可关闭
 - ROM 选择菜单（扫描目录下 `*.gba`），SELECT 长按 2 秒保存存档并返回菜单
 - 多点触控输入（Goodix 触摸屏，2 个独立指针 indev），可**双指同时按下两个虚拟键**（如 ↑+A、L+R）
+- **手势悬浮控件**：下滑呼出顶部栏（截图/音量/退出，带滑动动画）、左划呼出音量条（实时调音量），见下方「手势与悬浮控件」
+- **SmileySans 自定义字体**（运行时 tiny TTF 加载，按字号缓存），中文 ROM 名与中文按钮文字正常显示
 
 ## 目录结构
 
@@ -96,6 +98,27 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 - 因为是**多个独立指针 indev**，LVGL 会把不同手指独立 hit-test 到不同虚拟键——`btn_read_cb` 轮询各 `lv_btn` 的 `LV_STATE_PRESSED`——所以**两个虚拟键可同时按住**（如「↑ + A」「L + R」），互不干扰。需要更多同时按键时把 `GBA_INPUT_TOUCH_POINTS` 调大即可。
 - 运行时日志（stderr）：启动时打印每个 indev 的 fd 与校准范围；触点数量变化时打印 `[MT] active contacts = N`，方便确认双指是否被正确识别。
 - `tools/mt_probe.c`：板端 MT 原始事件/解析器状态探针（交叉编译 `arm-openwrt-linux-muslgnueabi-gcc -O2 -static`），用于排查触摸协议。
+- `tools/evswipe.c`：板端 protocol-A 触摸注入工具（tap/滑动，用于自动化验证）。
+
+## 手势与悬浮控件（板端实测）
+
+- 手势由多点触控驱动（`input_mt.cpp`）按触点轨迹检测，滑动超过 **90px** 触发一次（单指），方向与动作：
+  - **下滑** → 顶部栏滑入（480×48，浅灰条）：**截图 / 音量 / 退出** 三个按钮（SmileySans 中文文字）
+  - **上滑** → 顶部栏收回
+  - **左划** → 音量条从右侧滑入（竖向滑块 0-100，拖动实时调用 `gba_audio_set_volume`）
+  - **右划** → 音量条收回
+- 音量条打开时忽略上下滑（避免拖动滑块误触发顶部栏），关闭用右划或顶部栏「音量」按钮。
+- 顶部栏按钮：
+  - **截图**：抓取 `/dev/fb0` 当前可见页，写出 24-bit BMP 到 `/root/screenshot_<时间戳>.bmp`
+  - **音量**：开关音量条
+  - **退出**：返回 ROM 选择菜单（同 SELECT 长按）
+- 滑动动画用 `lv_anim`（280ms ease-out）；音量条/顶部栏初始在屏幕外，绝对定位（`lv_obj_set_pos`），注意 LVGL v9 对已对齐对象 `lv_obj_set_x/y` 设置的是**相对对齐的偏移**，用于进出场动画时容易踩坑。
+
+## 字体（SmileySans）
+
+- 运行时加载 `SmileySans.ttf`（搜索 `/mnt/UDISK/font/`、`/root/fonts/`、`/usr/share/fonts/`），用 LVGL **tiny TTF**（`LV_USE_TINY_TTF`，stb_truetype 内核，无外部依赖）创建字体。
+- `src/gba_core/gba_font.c` 仿 CardputerZero/Template 的 AssetManager：**用到了才创建，按字号缓存复用**（`gba_font_get(size)`，最多 8 个字号）；字体不可用时回退默认字体。
+- 应用位置：ROM 菜单列表（中文 ROM 名）、顶部栏与音量条按钮文字。
 
 ## 实机截图（T113-S3 板端）
 
@@ -103,9 +126,9 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 |---|---|---|
 | ![celeste](docs/img/celeste.png) | ![menu](docs/img/menu.png) | ![rickrpg](docs/img/rickrpg.png) |
 
-| 虚拟键布局（宝可梦绿宝石游戏内实拍） |
-|---|
-| ![vk_pad](docs/img/vk_pad.png) |
+| 虚拟键布局（绿宝石游戏内） | 顶部栏（下滑呼出） | 音量条（左划呼出） | 菜单中文 ROM 名（SmileySans） |
+|---|---|---|---|
+| ![vk_pad](docs/img/vk_pad.png) | ![topbar](docs/img/topbar.png) | ![volbar](docs/img/volbar.png) | ![menu_cjk](docs/img/menu_cjk.png) |
 
 上方 480×320 为 GBA 画面（240×160 放大 2 倍），下方 480×160 为虚拟按键区，
 触屏可玩（方向键 / A B 等）。测试 ROM 均来自可自由分发的 homebrew：

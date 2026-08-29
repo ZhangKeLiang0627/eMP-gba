@@ -63,6 +63,7 @@ file(GLOB GBA_CORE_SOURCES
 set(GBA_PORT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gba_port/port_impl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gba_port/gba_port_audio.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gba_port/gba_screenshot.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gba_port/lv_fs_posix.c
 )
 

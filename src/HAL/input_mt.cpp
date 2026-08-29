@@ -81,7 +81,87 @@ typedef struct {
 
     lv_point_t last;        /* last reported point (used on release) */
     int last_active;        /* last printed active-contact count (diag) */
+
+    /* Swipe detection (only indev #0's ctx uses it; it still parses every
+     * slot, so one tracker per slot keeps per-finger movement). */
+    int swipe_last_x[MT_MAX_SLOTS];
+    int swipe_last_y[MT_MAX_SLOTS];
+    int swipe_sum_x[MT_MAX_SLOTS];
+    int swipe_sum_y[MT_MAX_SLOTS];
+    bool swipe_sent[MT_MAX_SLOTS];
+    bool swipe_was_pressed[MT_MAX_SLOTS];
 } mt_indev_ctx_t;
+
+/* Minimum travel (raw panel px) before a swipe is reported. */
+#define SWIPE_LIMIT 90
+
+/* Swipe callback (C linkage, see gba_emu.h). */
+static void (*g_swipe_cb)(lv_dir_t dir, void* user_data) = NULL;
+static void* g_swipe_ud = NULL;
+
+extern "C" void lv_gba_emu_set_swipe_cb(void (*cb)(lv_dir_t dir, void* user_data), void* user_data)
+{
+    g_swipe_cb = cb;
+    g_swipe_ud = user_data;
+}
+
+/* Track a single contact and fire the swipe callback when it travels far
+ * enough along one axis. Called from mt_read_cb for indev #0's context. */
+static void mt_swipe_process(mt_indev_ctx_t* c)
+{
+    for(int s = 0; s < MT_MAX_SLOTS; s++) {
+        bool pressed = (c->slot_state[s] == LV_INDEV_STATE_PRESSED);
+
+        if(!pressed) {
+            if(c->swipe_was_pressed[s]) {
+                c->swipe_sum_x[s] = 0;
+                c->swipe_sum_y[s] = 0;
+                c->swipe_sent[s] = false;
+                c->swipe_was_pressed[s] = false;
+            }
+            continue;
+        }
+
+        if(!c->swipe_was_pressed[s]) {
+            /* fresh press: anchor the starting position */
+            c->swipe_last_x[s] = c->slot_x[s];
+            c->swipe_last_y[s] = c->slot_y[s];
+            c->swipe_sum_x[s] = 0;
+            c->swipe_sum_y[s] = 0;
+            c->swipe_sent[s] = false;
+            c->swipe_was_pressed[s] = true;
+            continue;
+        }
+        if(c->swipe_sent[s]) continue;
+
+        int dx = c->slot_x[s] - c->swipe_last_x[s];
+        int dy = c->slot_y[s] - c->swipe_last_y[s];
+        c->swipe_last_x[s] = c->slot_x[s];
+        c->swipe_last_y[s] = c->slot_y[s];
+        if(dx == 0 && dy == 0) continue;
+
+        /* near-stationary: don't let slow drift accumulate */
+        if(dx > -3 && dx < 3 && dy > -3 && dy < 3) {
+            c->swipe_sum_x[s] = 0;
+            c->swipe_sum_y[s] = 0;
+            continue;
+        }
+
+        c->swipe_sum_x[s] += dx;
+        c->swipe_sum_y[s] += dy;
+
+        if(c->swipe_sum_x[s] > SWIPE_LIMIT || c->swipe_sum_x[s] < -SWIPE_LIMIT ||
+           c->swipe_sum_y[s] > SWIPE_LIMIT || c->swipe_sum_y[s] < -SWIPE_LIMIT) {
+            lv_dir_t dir;
+            if(LV_ABS(c->swipe_sum_x[s]) > LV_ABS(c->swipe_sum_y[s]))
+                dir = (c->swipe_sum_x[s] > 0) ? LV_DIR_RIGHT : LV_DIR_LEFT;
+            else
+                dir = (c->swipe_sum_y[s] > 0) ? LV_DIR_BOTTOM : LV_DIR_TOP;
+            c->swipe_sent[s] = true;
+            if(g_swipe_cb) g_swipe_cb(dir, g_swipe_ud);
+        }
+    }
+}
 
 static int mt_calib(int v, int in_min, int in_max, int out_min, int out_max)
 {
@@ -204,6 +284,10 @@ static void mt_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
                 }
                 c->contact_idx = 0;
             }
+            /* Swipe detection runs once per completed frame so a fast
+             * press-move-release burst is seen frame by frame (a single
+             * end-of-read_cb pass would reset the tracker after the release). */
+            if(c->slot == 0) mt_swipe_process(c);
         }
     }
 
@@ -222,7 +306,6 @@ static void mt_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
         c->last.y = mt_calib(c->slot_y[s], c->min_y, c->max_y, off_y, off_y + h - 1);
     }
     data->point = c->last;
-
     /* Diagnostic: indev #0 also reports how many contacts are currently
      * active (across all slots) so a two-finger press is visible in the log. */
     if(c->slot == 0) {
@@ -233,6 +316,7 @@ static void mt_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
             fprintf(stderr, "[MT] active contacts = %d\n", n);
             c->last_active = n;
         }
+
     }
 }
 

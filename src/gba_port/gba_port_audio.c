@@ -145,6 +145,11 @@ void gba_audio_set_volume(int volume)
     LV_LOG_USER("audio volume = %d", volume);
 }
 
+int gba_audio_get_volume(void)
+{
+    return g_audio_ctx.volume;
+}
+
 /**********************
  *   STATIC FUNCTIONS
  **********************/
