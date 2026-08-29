@@ -147,20 +147,28 @@ static void vol_bar_hide(gba_overlay_t* ov)
 }
 
 /* --------------------------------------------------------------------------
- * toast (side tip popup, 1:1 mirror of eMP-video's sideTipsPopupCreate)
- *   - position: align BOTTOM_RIGHT (60, -10)  -> (330, 430) on 480x480
- *   - appear:   lv_anim_move(+10, -90)        -> pops up to (340, 340), 700ms
- *   - vanish:   lv_anim_drop_out()            -> fade out after 1500ms
- * LVGL v9.4 has neither lv_anim_move nor lv_anim_drop_out (v8 APIs), so the
- * same motion is expressed with plain absolute-position/opacity animations.
+ * toast (side tip popup)
+ * Full animation, as requested:
+ *   1) slide in from OFF-SCREEN RIGHT at mid height (y = 480/2 = 240),
+ *      700ms, stopping with the right ~1/8 of the bar (11px) still clipped
+ *      outside the screen (the bar is 90px wide -> rests at x = 480-90+11);
+ *   2) wait 1.5s;
+ *   3) drop towards the bottom-left while fading out (~500ms), then delete.
+ * LVGL v9.4 has no lv_anim_move / lv_anim_drop_out (v8 APIs), so the same
+ * motion is expressed with absolute-position + opacity lv_anim animations.
  * ------------------------------------------------------------------------ */
+
+#define TOAST_W       90
+#define TOAST_H       40
+#define TOAST_X_REST  (GBA_SCREEN_W - TOAST_W + 11)   /* right 11px (~1/8) stays off-screen */
+#define TOAST_Y       (GBA_SCREEN_H / 2)              /* slide in at mid height */
 
 static void toast_set_opa(void* obj, int32_t v)
 {
     lv_obj_set_style_opa((lv_obj_t*)obj, (lv_opa_t)v, 0);
 }
 
-static void toast_fade_out_ready(lv_anim_t* a)
+static void toast_drop_ready(lv_anim_t* a)
 {
     lv_obj_t* pop = (lv_obj_t*)a->var;
     lv_obj_del(pop);
@@ -171,14 +179,19 @@ static void toast_timer_cb(lv_timer_t* t)
     lv_obj_t* pop = (lv_obj_t*)lv_timer_get_user_data(t);
     if (pop == NULL) return;
 
-    /* lv_anim_drop_out: fade to transparent, then delete */
+    /* drop left-down + fade out, then delete */
+    const int x = lv_obj_get_x(pop);
+    const int y = lv_obj_get_y(pop);
+    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_x, x, x - 30, 500);
+    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_y, y, y + 100, 500);
+
     lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_var(&a, pop);
     lv_anim_set_exec_cb(&a, toast_set_opa);
     lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_TRANSP);
-    lv_anim_set_time(&a, 300);
-    lv_anim_set_ready_cb(&a, toast_fade_out_ready);
+    lv_anim_set_time(&a, 500);
+    lv_anim_set_ready_cb(&a, toast_drop_ready);
     lv_anim_start(&a);
 }
 
@@ -187,17 +200,13 @@ static void overlay_toast_create(const char* tips)
     lv_obj_t* pop = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(pop);
     lv_obj_clear_flag(pop, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(pop, 90, 40);
+    lv_obj_set_size(pop, TOAST_W, TOAST_H);
     lv_obj_set_style_bg_opa(pop, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(pop, lv_color_hex(0xAAAAAA), 0);
     lv_obj_set_style_radius(pop, 10, 0);
-    /* absolute pos of BOTTOM_RIGHT (60, -10) */
-    lv_obj_set_pos(pop, GBA_SCREEN_W - 90 - 60, GBA_SCREEN_H - 40 - 10);
-    /* appear: pop up (+10, -90) like lv_anim_move */
-    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_x,
-                 GBA_SCREEN_W - 90 - 60, GBA_SCREEN_W - 90 - 60 + 10, 700);
-    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_y,
-                 GBA_SCREEN_H - 40 - 10, GBA_SCREEN_H - 40 - 10 - 90, 700);
+    /* 1) slide in from off-screen right at mid height */
+    lv_obj_set_pos(pop, GBA_SCREEN_W, TOAST_Y);
+    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_x, GBA_SCREEN_W, TOAST_X_REST, 700);
 
     lv_obj_t* label = lv_label_create(pop);
     lv_font_t* f = gba_font_get(16);
@@ -206,7 +215,7 @@ static void overlay_toast_create(const char* tips)
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 10, 0);
     lv_label_set_text(label, tips);
 
-    /* one-shot timer: fade out + delete after 1.5s */
+    /* 2) wait 1.5s, then drop + fade out */
     lv_timer_t* t = lv_timer_create(toast_timer_cb, 1500, pop);
     lv_timer_set_repeat_count(t, 1);
 }
