@@ -23,7 +23,7 @@
 #define OVERLAY_VOL_BAR_W   124   /* 144 - 20: narrower body */
 #define OVERLAY_VOL_BAR_H   192
 #define OVERLAY_VOL_BAR_X   (GBA_SCREEN_W - OVERLAY_VOL_BAR_W - 10)  /* 10px off the right edge */
-#define OVERLAY_ANIM_TIME   500   /* eMP-video: 500ms ease-out */
+#define OVERLAY_ANIM_TIME   400   /* eMP-video-style: 400ms ease-out */
 
 /* --------------------------------------------------------------------------
  * small helpers
@@ -107,21 +107,29 @@ static lv_obj_t* vol_slider_create(lv_obj_t* parent)
  * show / hide
  * ------------------------------------------------------------------------ */
 
-/* eMP-video style enter/exit: 500ms ease-out with an "expand" effect -
- * the top bar slides down while growing from 20px wide, the volume bar
- * slides in while growing from 30px tall (mirrors wrapperTop/wrapperSlider). */
+/* eMP-video style enter/exit: ease-out with an "expand" effect - the top
+ * bar slides down while growing from 20px wide, the volume bar slides in
+ * while growing from 30px tall. The top bar grows/shrinks AROUND ITS
+ * CENTER (x animates together with width so the bar never slides to one
+ * side). */
 static void top_bar_show(gba_overlay_t* ov)
 {
     ov->top_visible = true;
+    const int w = GBA_SCREEN_W * 9 / 10;
     gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_y, -40, 0, OVERLAY_ANIM_TIME);
-    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_width, 20, GBA_SCREEN_W * 9 / 10, OVERLAY_ANIM_TIME);
+    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_width, 20, w, OVERLAY_ANIM_TIME);
+    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_x,
+                 (GBA_SCREEN_W - 20) / 2, (GBA_SCREEN_W - w) / 2, OVERLAY_ANIM_TIME);
 }
 
 static void top_bar_hide(gba_overlay_t* ov)
 {
     ov->top_visible = false;
+    const int w = GBA_SCREEN_W * 9 / 10;
     gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_y, 0, -40, OVERLAY_ANIM_TIME);
-    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_width, GBA_SCREEN_W * 9 / 10, 20, OVERLAY_ANIM_TIME);
+    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_width, w, 20, OVERLAY_ANIM_TIME);
+    gba_anim_obj(ov->top_bar, (lv_anim_exec_xcb_t)lv_obj_set_x,
+                 (GBA_SCREEN_W - w) / 2, (GBA_SCREEN_W - 20) / 2, OVERLAY_ANIM_TIME);
 }
 
 static void vol_bar_show(gba_overlay_t* ov)
@@ -139,6 +147,42 @@ static void vol_bar_hide(gba_overlay_t* ov)
 }
 
 /* --------------------------------------------------------------------------
+ * toast (side tip popup, mirrors eMP-video's sideTipsPopupCreate)
+ * ------------------------------------------------------------------------ */
+
+static void toast_del_timer_cb(lv_timer_t* t)
+{
+    lv_obj_t* pop = (lv_obj_t*)lv_timer_get_user_data(t);
+    if (pop) lv_obj_del(pop);
+}
+
+static void overlay_toast_create(const char* tips)
+{
+    lv_obj_t* pop = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(pop);
+    lv_obj_clear_flag(pop, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(pop, 90, 40);
+    lv_obj_set_style_bg_opa(pop, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(pop, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_style_radius(pop, 10, 0);
+    /* bottom-right (60, -10) in absolute coords, slide in from the right */
+    lv_obj_set_pos(pop, GBA_SCREEN_W, GBA_SCREEN_H - 50);
+    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_x,
+                 GBA_SCREEN_W, GBA_SCREEN_W - 90 - 60, 700);
+
+    lv_obj_t* label = lv_label_create(pop);
+    lv_font_t* f = gba_font_get(16);
+    if (f) lv_obj_set_style_text_font(label, f, 0);
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 10, 0);
+    lv_label_set_text(label, tips);
+
+    /* one-shot timer: remove the popup after ~1.8s */
+    lv_timer_t* t = lv_timer_create(toast_del_timer_cb, 1800, pop);
+    lv_timer_set_repeat_count(t, 1);
+}
+
+/* --------------------------------------------------------------------------
  * events
  * ------------------------------------------------------------------------ */
 
@@ -150,6 +194,8 @@ static void overlay_event_cb(lv_event_t* e)
 
     if (btn == ov->top_screenshot_btn) {
         gba_screenshot_capture(NULL);
+        fprintf(stderr, "[gba] screenshot captured\n");
+        overlay_toast_create("截图成功");
     }
     else if (btn == ov->top_volume_btn) {
         if (ov->vol_visible)
@@ -259,7 +305,7 @@ gba_overlay_t* gba_overlay_create(lv_obj_t* root,
     lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, ov);
     ov->top_volume_btn = b;
 
-    b = overlay_btn_create(bar, "x", lv_color_hex(0xFF6056), lv_color_hex(0xE44543), 54, 34);
+    b = overlay_btn_create(bar, "x", lv_color_hex(0xFF6056), lv_color_hex(0xE44543), 34, 34);
     lv_obj_align(b, LV_ALIGN_RIGHT_MID, -10, 0);
     lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, ov);
     ov->top_exit_btn = b;
