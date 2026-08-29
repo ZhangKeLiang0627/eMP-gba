@@ -53,7 +53,7 @@ static void event_handler(lv_event_t* e)
     }
 }
 
-void gba_menu_create(lv_obj_t* parent, const char* dir_path, gba_menu_select_cb_t cb, void* user_data)
+lv_obj_t* gba_menu_create(lv_obj_t* parent, const char* dir_path, gba_menu_select_cb_t cb, void* user_data)
 {
     char fs_path[512];
     if (dir_path[0] != '/') {
@@ -66,9 +66,23 @@ void gba_menu_create(lv_obj_t* parent, const char* dir_path, gba_menu_select_cb_
     g_menu_ctx.cb = cb;
     g_menu_ctx.user_data = user_data;
 
-    lv_obj_t* list = lv_list_create(parent);
+    /* Plain container root (NOT a flex list): page-level overlays (pinned
+     * top bar / volume bar) attach here and are positioned absolutely above
+     * the list, unaffected by the list's flex layout. */
+    lv_obj_t* root = lv_obj_create(parent);
+    lv_obj_remove_style_all(root);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, 0);
+
+    lv_obj_t* list = lv_list_create(root);
     lv_obj_set_size(list, LV_PCT(100), LV_PCT(100));
     lv_obj_center(list);
+    /* Leave room for the pinned top bar (38px) so the title/items are not
+     * covered by it. */
+    lv_obj_set_style_pad_top(list, 44, 0);
+    lv_obj_set_style_pad_bottom(list, 12, 0);
 
     lv_list_add_text(list, "Select ROM");
 
@@ -112,4 +126,6 @@ void gba_menu_create(lv_obj_t* parent, const char* dir_path, gba_menu_select_cb_
     if (count == 0 && res == LV_FS_RES_OK) {
         lv_list_add_text(list, "No .gba files found");
     }
+
+    return root;
 }

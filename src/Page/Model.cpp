@@ -36,7 +36,7 @@ Model::Model(std::function<void(void)> exitCb)
         launch(autoRom);
     }
     else {
-        _view.showMenu(_romDir, selectCb);
+        _view.showMenu(_romDir, selectCb, _exitCb);
     }
 
     /* Spawn the LVGL thread that drives lv_timer_handler (and thus the
@@ -62,7 +62,7 @@ void Model::launch(const std::string & romPath)
     if (emu == nullptr) {
         LV_LOG_WARN("[Model] create gba emu failed for %s", romPath.c_str());
         /* ROM load failed -> back to the picker */
-        _view.showMenu(_romDir, [this](const std::string & path) { this->launch(path); });
+        _view.showMenu(_romDir, [this](const std::string & path) { this->launch(path); }, _exitCb);
     }
 }
 
@@ -71,7 +71,7 @@ void Model::backToMenu(void)
     /* Runs as an LVGL async task (see View::exitBridge). */
     _view.stopAudio();
     _view.clearScreen();
-    _view.showMenu(_romDir, [this](const std::string & path) { this->launch(path); });
+    _view.showMenu(_romDir, [this](const std::string & path) { this->launch(path); }, _exitCb);
 }
 
 void Model::threadLvglHandler(void)

@@ -102,17 +102,22 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 ## 手势与悬浮控件（板端实测）
 
-- 手势由多点触控驱动（`input_mt.cpp`）按触点轨迹检测，滑动超过 **90px** 触发一次（单指），方向与动作：
-  - **下滑** → 顶部栏滑入（480×48，浅灰条）：**截图 / 音量 / 退出** 三个按钮（SmileySans 中文文字）
-  - **上滑** → 顶部栏收回
-  - **左划** → 音量条从右侧滑入（竖向滑块 0-100，拖动实时调用 `gba_audio_set_volume`）
+悬浮控件为**页面无关的独立模块**（`src/gba_core/gba_overlay.c`），ROM 菜单页与游戏页共用，按页面区分行为：
+
+- **ROM 菜单页**：顶部栏**常驻**（不可通过手势收回），**所有手势禁用**（音量条也不可手势呼出）。「退出」退出整个应用。
+- **游戏页**：顶部栏与音量条初始隐藏，手势可用：
+  - **下滑** → 顶部栏滑入（宽 90%、浅灰条，eMP-video topCont 风格）：**截图 / 音量 / 退出** 三个按钮（SmileySans 中文文字）
+  - **上滑** → 顶部栏收回（音量条开着时也可收回）
+  - **左划** → 音量条从右侧滑入：样式照抄 eMP-video `sliderContCreate()`（容器 `#eeeeee` 90% 圆角 10、轨道 `#3c9ba6`、指示 `#a4d9b2`、旋钮 `#445588` 灰边圆钮，含 `LV_SYMBOL_VOLUME_MAX` 图标），竖向 0-100 滑块拖动实时调用 `gba_audio_set_volume`
   - **右划** → 音量条收回
-- 音量条打开时忽略上下滑（避免拖动滑块误触发顶部栏），关闭用右划或顶部栏「音量」按钮。
+- 音量条打开时**忽略下滑**（避免拖动滑块误呼出顶部栏）；顶部栏「音量」按钮也可开关音量条。
 - 顶部栏按钮：
   - **截图**：抓取 `/dev/fb0` 当前可见页，写出 24-bit BMP 到 `/root/screenshot_<时间戳>.bmp`
   - **音量**：开关音量条
   - **退出**：返回 ROM 选择菜单（同 SELECT 长按）
-- 滑动动画用 `lv_anim`（280ms ease-out）；音量条/顶部栏初始在屏幕外，绝对定位（`lv_obj_set_pos`），注意 LVGL v9 对已对齐对象 `lv_obj_set_x/y` 设置的是**相对对齐的偏移**，用于进出场动画时容易踩坑。
+- 手势由多点触控驱动（`input_mt.cpp`）按触点轨迹检测，滑动超过 **90px** 触发一次（单指）；滑动动画 `lv_anim` 280ms ease-out。
+- 滑动回调生命周期：**退出游戏时自动清空全局 swipe 回调**（`gba_emu` 删除时 `lv_gba_emu_set_swipe_cb(NULL, NULL)`），避免菜单页滑动踩到已释放的模拟器上下文（旧版在此场景偶发 SIGSEGV，已修复）。
+- LVGL v9 注意：已对齐对象 `lv_obj_set_x/y` 设置的是**相对对齐的偏移**，进出场动画须用 `lv_obj_set_pos` 绝对定位；菜单页的悬浮层要挂在**普通容器**（非 `lv_list`，其 flex 布局会打乱悬浮对象）。
 
 ## 字体（SmileySans）
 
@@ -126,9 +131,9 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 |---|---|---|
 | ![celeste](docs/img/celeste.png) | ![menu](docs/img/menu.png) | ![rickrpg](docs/img/rickrpg.png) |
 
-| 虚拟键布局（绿宝石游戏内） | 顶部栏（下滑呼出） | 音量条（左划呼出） | 菜单中文 ROM 名（SmileySans） |
+| 虚拟键布局（绿宝石游戏内） | 顶部栏（下滑呼出） | 音量条（左划呼出，eMP-video 样式） | 菜单页（顶部栏常驻，手势禁用） |
 |---|---|---|---|
-| ![vk_pad](docs/img/vk_pad.png) | ![topbar](docs/img/topbar.png) | ![volbar](docs/img/volbar.png) | ![menu_cjk](docs/img/menu_cjk.png) |
+| ![vk_pad](docs/img/vk_pad.png) | ![topbar](docs/img/topbar.png) | ![volbar_v2](docs/img/volbar_v2.png) | ![menu_topbar](docs/img/menu_topbar.png) |
 
 上方 480×320 为 GBA 画面（240×160 放大 2 倍），下方 480×160 为虚拟按键区，
 触屏可玩（方向键 / A B 等）。测试 ROM 均来自可自由分发的 homebrew：

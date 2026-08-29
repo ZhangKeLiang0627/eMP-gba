@@ -20,8 +20,10 @@ namespace Page
     class View
     {
     public:
-        /* Show the ROM picker; cb is called with the absolute rom path. */
-        void showMenu(const std::string & romDir, RomSelectedCb cb);
+        /* Show the ROM picker; cb is called with the absolute rom path.
+         * appExit fires when the pinned menu top-bar 退出 button is pressed
+         * (i.e. the whole application exits). */
+        void showMenu(const std::string & romDir, RomSelectedCb cb, ExitCb appExit);
 
         /* Create the emulator screen for a rom. Returns the gba_emu object
          * (NULL on failure). When SELECT is long-pressed, exitCb fires. */
@@ -36,9 +38,11 @@ namespace Page
     private:
         static void menuSelectBridge(const char * path, void * user_data);
         static void exitBridge(void * user_data);
+        static void appExitBridge(void * user_data);
         void invokeExit(void);
 
         RomSelectedCb _romCb;
         ExitCb _exitCb;
+        ExitCb _appExitCb;   /* full-app exit (menu top-bar 退出) */
     };
 }

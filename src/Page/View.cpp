@@ -7,15 +7,23 @@ extern "C" {
 #include "lvgl/lvgl.h"
 #include "gba_emu.h"
 #include "gba_menu.h"
+#include "gba_overlay.h"
 #include "port.h"
 }
 
 using namespace Page;
 
-void View::showMenu(const std::string & romDir, RomSelectedCb cb)
+void View::showMenu(const std::string & romDir, RomSelectedCb cb, ExitCb appExit)
 {
     _romCb = cb;
-    gba_menu_create(lv_scr_act(), romDir.c_str(), menuSelectBridge, this);
+    _appExitCb = appExit;
+    lv_obj_t * menu = gba_menu_create(lv_scr_act(), romDir.c_str(), menuSelectBridge, this);
+
+    /* Menu page: top bar pinned and gestures fully disabled (the overlay
+     * clears the global swipe callback, so swiping here can never touch a
+     * stale emulator context). 退出 exits the whole app. */
+    gba_overlay_create(menu, NULL, appExitBridge, this,
+                       true /*top_pinned*/, false /*gesture_on*/);
 }
 
 void View::menuSelectBridge(const char * path, void * user_data)
@@ -23,6 +31,13 @@ void View::menuSelectBridge(const char * path, void * user_data)
     View * self = (View *)user_data;
     if (self && self->_romCb)
         self->_romCb(std::string(path));
+}
+
+void View::appExitBridge(void * user_data)
+{
+    View * self = (View *)user_data;
+    if (self && self->_appExitCb)
+        self->_appExitCb();
 }
 
 lv_obj_t * View::showEmu(const std::string & romPath, int volume, ExitCb exitCb)

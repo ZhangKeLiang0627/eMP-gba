@@ -31,7 +31,9 @@ extern "C" {
 
 typedef void (*gba_menu_select_cb_t)(const char* path, void* user_data);
 
-void gba_menu_create(lv_obj_t* parent, const char* dir_path, gba_menu_select_cb_t cb, void* user_data);
+/* Create the ROM picker; returns the list root so the caller can attach
+ * page-level overlays (e.g. the pinned top bar) on top of it. */
+lv_obj_t* gba_menu_create(lv_obj_t* parent, const char* dir_path, gba_menu_select_cb_t cb, void* user_data);
 
 #ifdef __cplusplus
 }

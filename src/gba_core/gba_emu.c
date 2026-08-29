@@ -72,6 +72,11 @@ static void on_delete_event_cb(lv_event_t* e)
         lv_timer_del(gba_ctx->timer);
     }
 
+    /* The input driver's global swipe callback still points at this
+     * (now being freed) context: clear it so a swipe on the ROM menu after
+     * exiting a game can never dereference a dangling pointer. */
+    lv_gba_emu_set_swipe_cb(NULL, NULL);
+
     gba_retro_save_game(gba_ctx);
 
     gba_view_deinit(gba_ctx);
