@@ -29,7 +29,8 @@
  * small helpers
  * ------------------------------------------------------------------------ */
 
-static void gba_anim_obj(lv_obj_t* obj, lv_anim_exec_xcb_t exec, int32_t from, int32_t to, uint32_t time)
+static void gba_anim_obj_path(lv_obj_t* obj, lv_anim_exec_xcb_t exec, int32_t from, int32_t to,
+                              uint32_t time, lv_anim_path_cb_t path)
 {
     lv_anim_t a;
     lv_anim_init(&a);
@@ -37,8 +38,13 @@ static void gba_anim_obj(lv_obj_t* obj, lv_anim_exec_xcb_t exec, int32_t from, i
     lv_anim_set_exec_cb(&a, exec);
     lv_anim_set_values(&a, from, to);
     lv_anim_set_time(&a, time);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_set_path_cb(&a, path);
     lv_anim_start(&a);
+}
+
+static void gba_anim_obj(lv_obj_t* obj, lv_anim_exec_xcb_t exec, int32_t from, int32_t to, uint32_t time)
+{
+    gba_anim_obj_path(obj, exec, from, to, time, lv_anim_path_ease_out);
 }
 
 static lv_obj_t* overlay_btn_create(lv_obj_t* parent, const char* text,
@@ -179,11 +185,13 @@ static void toast_timer_cb(lv_timer_t* t)
     lv_obj_t* pop = (lv_obj_t*)lv_timer_get_user_data(t);
     if (pop == NULL) return;
 
-    /* drop left-down + fade out, then delete */
+    /* projectile-like drop: X moves at constant speed (linear), Y falls
+     * with acceleration (ease-in) - a parabola, not a straight 45 deg line.
+     * Fade out simultaneously, then delete. */
     const int x = lv_obj_get_x(pop);
     const int y = lv_obj_get_y(pop);
-    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_x, x, x - 30, 500);
-    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_y, y, y + 100, 500);
+    gba_anim_obj_path(pop, (lv_anim_exec_xcb_t)lv_obj_set_x, x, x - 30, 500, lv_anim_path_linear);
+    gba_anim_obj_path(pop, (lv_anim_exec_xcb_t)lv_obj_set_y, y, y + 100, 500, lv_anim_path_ease_in);
 
     lv_anim_t a;
     lv_anim_init(&a);
@@ -347,6 +355,15 @@ gba_overlay_t* gba_overlay_create(lv_obj_t* root,
     lv_obj_align(b, LV_ALIGN_RIGHT_MID, -10, 0);
     lv_obj_add_event_cb(b, overlay_event_cb, LV_EVENT_CLICKED, ov);
     ov->top_exit_btn = b;
+
+    /* centered title */
+    lv_obj_t* title = lv_label_create(bar);
+    lv_font_t* tf = gba_font_get(20);
+    if (tf) lv_obj_set_style_text_font(title, tf, 0);
+    lv_label_set_text(title, "GAME BOY");
+    lv_obj_set_style_text_color(title, lv_color_hex(0x555555), 0);
+    lv_obj_center(title);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
     /* ---- volume bar (eMP-video sliderContCreate look) ---- */
     lv_obj_t* vbar = lv_obj_create(root);
