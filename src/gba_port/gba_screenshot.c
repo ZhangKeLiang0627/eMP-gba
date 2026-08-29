@@ -145,6 +145,8 @@ int gba_screenshot_capture(const char* path)
     free(rgb24);
 
     if (ret == 0) {
+        /* stderr so it is visible regardless of the LVGL log level (WARN) */
+        fprintf(stderr, "[gba] screenshot saved: %s (%dx%d)\n", path, w, h);
         LV_LOG_USER("screenshot saved: %s (%dx%d)", path, w, h);
     } else {
         LV_LOG_WARN("screenshot: write %s failed", path);

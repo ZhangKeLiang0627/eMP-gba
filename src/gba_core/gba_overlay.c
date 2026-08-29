@@ -147,13 +147,39 @@ static void vol_bar_hide(gba_overlay_t* ov)
 }
 
 /* --------------------------------------------------------------------------
- * toast (side tip popup, mirrors eMP-video's sideTipsPopupCreate)
+ * toast (side tip popup, 1:1 mirror of eMP-video's sideTipsPopupCreate)
+ *   - position: align BOTTOM_RIGHT (60, -10)  -> (330, 430) on 480x480
+ *   - appear:   lv_anim_move(+10, -90)        -> pops up to (340, 340), 700ms
+ *   - vanish:   lv_anim_drop_out()            -> fade out after 1500ms
+ * LVGL v9.4 has neither lv_anim_move nor lv_anim_drop_out (v8 APIs), so the
+ * same motion is expressed with plain absolute-position/opacity animations.
  * ------------------------------------------------------------------------ */
 
-static void toast_del_timer_cb(lv_timer_t* t)
+static void toast_set_opa(void* obj, int32_t v)
+{
+    lv_obj_set_style_opa((lv_obj_t*)obj, (lv_opa_t)v, 0);
+}
+
+static void toast_fade_out_ready(lv_anim_t* a)
+{
+    lv_obj_t* pop = (lv_obj_t*)a->var;
+    lv_obj_del(pop);
+}
+
+static void toast_timer_cb(lv_timer_t* t)
 {
     lv_obj_t* pop = (lv_obj_t*)lv_timer_get_user_data(t);
-    if (pop) lv_obj_del(pop);
+    if (pop == NULL) return;
+
+    /* lv_anim_drop_out: fade to transparent, then delete */
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, pop);
+    lv_anim_set_exec_cb(&a, toast_set_opa);
+    lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_time(&a, 300);
+    lv_anim_set_ready_cb(&a, toast_fade_out_ready);
+    lv_anim_start(&a);
 }
 
 static void overlay_toast_create(const char* tips)
@@ -165,10 +191,13 @@ static void overlay_toast_create(const char* tips)
     lv_obj_set_style_bg_opa(pop, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(pop, lv_color_hex(0xAAAAAA), 0);
     lv_obj_set_style_radius(pop, 10, 0);
-    /* bottom-right (60, -10) in absolute coords, slide in from the right */
-    lv_obj_set_pos(pop, GBA_SCREEN_W, GBA_SCREEN_H - 50);
+    /* absolute pos of BOTTOM_RIGHT (60, -10) */
+    lv_obj_set_pos(pop, GBA_SCREEN_W - 90 - 60, GBA_SCREEN_H - 40 - 10);
+    /* appear: pop up (+10, -90) like lv_anim_move */
     gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_x,
-                 GBA_SCREEN_W, GBA_SCREEN_W - 90 - 60, 700);
+                 GBA_SCREEN_W - 90 - 60, GBA_SCREEN_W - 90 - 60 + 10, 700);
+    gba_anim_obj(pop, (lv_anim_exec_xcb_t)lv_obj_set_y,
+                 GBA_SCREEN_H - 40 - 10, GBA_SCREEN_H - 40 - 10 - 90, 700);
 
     lv_obj_t* label = lv_label_create(pop);
     lv_font_t* f = gba_font_get(16);
@@ -177,8 +206,8 @@ static void overlay_toast_create(const char* tips)
     lv_obj_align(label, LV_ALIGN_LEFT_MID, 10, 0);
     lv_label_set_text(label, tips);
 
-    /* one-shot timer: remove the popup after ~1.8s */
-    lv_timer_t* t = lv_timer_create(toast_del_timer_cb, 1800, pop);
+    /* one-shot timer: fade out + delete after 1.5s */
+    lv_timer_t* t = lv_timer_create(toast_timer_cb, 1500, pop);
     lv_timer_set_repeat_count(t, 1);
 }
 
@@ -193,8 +222,8 @@ static void overlay_event_cb(lv_event_t* e)
     if (ov == NULL) return;
 
     if (btn == ov->top_screenshot_btn) {
+        /* the full save path+name is printed by gba_screenshot_capture() */
         gba_screenshot_capture(NULL);
-        fprintf(stderr, "[gba] screenshot captured\n");
         overlay_toast_create("截图成功");
     }
     else if (btn == ov->top_volume_btn) {

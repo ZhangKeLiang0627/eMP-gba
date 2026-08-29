@@ -112,7 +112,7 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
   - **右划** → 音量条收回
 - 音量条打开时**忽略下滑**（避免拖动滑块误呼出顶部栏）；顶部栏「音量」按钮也可开关音量条。
 - 顶部栏按钮：
-  - **截图**：抓取 `/dev/fb0` 当前可见页，写出 24-bit BMP 到 `/root/screenshot_<时间戳>.bmp`；成功后在右下角弹出「截图成功」提示条（toast，1.8s 后消失）并打 stderr 日志
+  - **截图**：抓取 `/dev/fb0` 当前可见页，写出 24-bit BMP 到 `/root/screenshot_<时间戳>.bmp`；成功后在右下角向上弹出「截图成功」提示条（toast：对齐 `BOTTOM_RIGHT (60,-10)` 后上移 90px，1.5s 后淡出消失），并在 stderr 打印**完整保存路径**（`[gba] screenshot saved: /root/screenshot_xxx.bmp (480x480)`）
   - **音量**：开关音量条
   - **x（退出）**：返回 ROM 选择菜单（同 SELECT 长按）
 - 手势由多点触控驱动（`input_mt.cpp`）按触点轨迹检测，滑动超过 **90px** 触发一次（单指）；进出场动画照抄 eMP-video：**400ms ease-out + 展开效果**（顶栏下滑时从 20px 宽**居中**展开——x 与 width 联动保持水平居中，音量条滑入时从 30px 高展开）。
@@ -135,7 +135,7 @@ export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 |---|---|---|---|
 | ![vk_pad](docs/img/vk_pad.png) | ![topbar](docs/img/topbar.png) | ![volbar_v2](docs/img/volbar_v2.png) | ![menu_topbar](docs/img/menu_topbar.png) |
 
-| 截图成功提示条（右下角 toast） |
+| 截图成功提示条（右下角弹出，eMP-video 同款动向） |
 |---|
 | ![toast](docs/img/toast.png) |
 
