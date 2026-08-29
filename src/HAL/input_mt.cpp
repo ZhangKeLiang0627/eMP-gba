@@ -86,6 +86,8 @@ typedef struct {
      * slot, so one tracker per slot keeps per-finger movement). */
     int swipe_last_x[MT_MAX_SLOTS];
     int swipe_last_y[MT_MAX_SLOTS];
+    int swipe_anchor_x[MT_MAX_SLOTS];   /* press-start position (raw panel px) */
+    int swipe_anchor_y[MT_MAX_SLOTS];
     int swipe_sum_x[MT_MAX_SLOTS];
     int swipe_sum_y[MT_MAX_SLOTS];
     bool swipe_sent[MT_MAX_SLOTS];
@@ -96,10 +98,10 @@ typedef struct {
 #define SWIPE_LIMIT 90
 
 /* Swipe callback (C linkage, see gba_emu.h). */
-static void (*g_swipe_cb)(lv_dir_t dir, void* user_data) = NULL;
+static void (*g_swipe_cb)(lv_dir_t dir, int start_x, int start_y, void* user_data) = NULL;
 static void* g_swipe_ud = NULL;
 
-extern "C" void lv_gba_emu_set_swipe_cb(void (*cb)(lv_dir_t dir, void* user_data), void* user_data)
+extern "C" void lv_gba_emu_set_swipe_cb(void (*cb)(lv_dir_t dir, int start_x, int start_y, void* user_data), void* user_data)
 {
     g_swipe_cb = cb;
     g_swipe_ud = user_data;
@@ -126,6 +128,8 @@ static void mt_swipe_process(mt_indev_ctx_t* c)
             /* fresh press: anchor the starting position */
             c->swipe_last_x[s] = c->slot_x[s];
             c->swipe_last_y[s] = c->slot_y[s];
+            c->swipe_anchor_x[s] = c->slot_x[s];
+            c->swipe_anchor_y[s] = c->slot_y[s];
             c->swipe_sum_x[s] = 0;
             c->swipe_sum_y[s] = 0;
             c->swipe_sent[s] = false;
@@ -158,7 +162,7 @@ static void mt_swipe_process(mt_indev_ctx_t* c)
             else
                 dir = (c->swipe_sum_y[s] > 0) ? LV_DIR_BOTTOM : LV_DIR_TOP;
             c->swipe_sent[s] = true;
-            if(g_swipe_cb) g_swipe_cb(dir, g_swipe_ud);
+            if(g_swipe_cb) g_swipe_cb(dir, c->swipe_anchor_x[s], c->swipe_anchor_y[s], g_swipe_ud);
         }
     }
 }

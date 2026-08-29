@@ -22,6 +22,7 @@
 #define OVERLAY_TOP_BAR_H   38
 #define OVERLAY_VOL_BAR_W   124   /* 144 - 20: narrower body */
 #define OVERLAY_VOL_BAR_H   192
+#define OVERLAY_VOL_BAR_Y   60
 #define OVERLAY_VOL_BAR_X   (GBA_SCREEN_W - OVERLAY_VOL_BAR_W - 10)  /* 10px off the right edge */
 #define OVERLAY_ANIM_TIME   400   /* eMP-video-style: 400ms ease-out */
 
@@ -272,22 +273,27 @@ static void vol_slider_event_cb(lv_event_t* e)
     }
 }
 
-/* game-page swipe handler */
-static void overlay_swipe_cb(lv_dir_t dir, void* user_data)
+/* game-page swipe handler.
+ * The swipe callback carries the press-start point: a gesture that begins
+ * INSIDE the open volume bar is a slider drag (vertical), so it must not
+ * flip the top bar; gestures starting anywhere else behave normally. */
+static void overlay_swipe_cb(lv_dir_t dir, int start_x, int start_y, void* user_data)
 {
     gba_overlay_t* ov = (gba_overlay_t*)user_data;
     if (ov == NULL) return;
 
-    /* While the volume bar is open, ignore SWIPE-DOWN so a slider drag
-     * (also vertical) can not pop the top bar open. Swipe-UP still closes
-     * the top bar when it is visible (harmless during a slider drag, since
-     * the top bar is hidden then). Close the volume bar with a right-swipe. */
+    bool in_vol = (ov->vol_visible &&
+                   start_x >= OVERLAY_VOL_BAR_X && start_x < OVERLAY_VOL_BAR_X + OVERLAY_VOL_BAR_W &&
+                   start_y >= OVERLAY_VOL_BAR_Y && start_y < OVERLAY_VOL_BAR_Y + OVERLAY_VOL_BAR_H);
+
     switch (dir) {
     case LV_DIR_BOTTOM:
-        if (!ov->top_visible && !ov->vol_visible) top_bar_show(ov);
+        /* top bar can be pulled out even while the volume bar is open,
+         * unless the gesture started on the volume slider itself */
+        if (!ov->top_visible && !in_vol) top_bar_show(ov);
         break;
     case LV_DIR_TOP:
-        if (ov->top_visible) top_bar_hide(ov);
+        if (ov->top_visible && !in_vol) top_bar_hide(ov);
         break;
     case LV_DIR_LEFT:
         if (!ov->vol_visible) vol_bar_show(ov);

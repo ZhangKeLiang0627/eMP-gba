@@ -36,7 +36,9 @@ typedef enum {
 
 typedef uint32_t (*lv_gba_emu_input_read_cb_t)(void* user_data);
 typedef size_t (*lv_gba_emu_audio_output_cb_t)(void* user_data, const int16_t* data, size_t frames);
-typedef void (*lv_gba_emu_swipe_cb_t)(lv_dir_t dir, void* user_data);
+/* Swipe callback: dir + the raw press-start coordinates (panel px) so the
+ * receiver can tell a real gesture from a slider drag inside its widgets. */
+typedef void (*lv_gba_emu_swipe_cb_t)(lv_dir_t dir, int start_x, int start_y, void* user_data);
 
 lv_obj_t* lv_gba_emu_create(lv_obj_t* par, const char* rom_file_path, lv_gba_view_mode_t mode);
 void lv_gba_emu_add_input_read_cb(lv_obj_t* gba_emu, lv_gba_emu_input_read_cb_t read_cb, void* user_data);
