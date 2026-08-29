@@ -33,7 +33,7 @@ eMP-gba
 └── libs/
     ├── lvgl                      # submodule：LVGL v9.4.0
     ├── vba-next                  # submodule：FASTSHIFT/vba-next（libretro GBA core）
-    └── lv_conf.h                 # LVGL 配置（480×480 RGB565 / fbdev / evdev）
+    └── lv_conf.h                 # LVGL 配置（LVGL 官方模板完整版，仅修改本项目需要的值）
 ```
 
 ## 依赖
