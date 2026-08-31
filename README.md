@@ -66,9 +66,9 @@ make -C build -j$(nproc)
 
 ```sh
 # 环境变量（可选）
-export EMP_GBA_ROM_DIR=/root/roms    # ROM 目录，默认 /root
+export EMP_GBA_ROM_DIR=/mnt/UDISK/roms    # ROM 目录，默认 /mnt/UDISK/roms
 export EMP_GBA_VOLUME=100            # 音量 0-100，0 关闭音频
-export EMP_GBA_AUTOSTART=/root/roms/xxx.gba   # 启动后直接进入指定 ROM（跳过菜单）
+export EMP_GBA_AUTOSTART=/mnt/UDISK/roms/xxx.gba   # 启动后直接进入指定 ROM（跳过菜单）
 export LV_GBA_AUDIO_DEVICE=default   # ALSA PCM 设备（可选）
 
 ./eMP_gba

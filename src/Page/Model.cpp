@@ -18,7 +18,7 @@ Model::Model(std::function<void(void)> exitCb)
     _exitCb = exitCb;
 
     const char * dir = getenv("EMP_GBA_ROM_DIR");
-    _romDir = (dir != nullptr) ? dir : "/root";
+    _romDir = (dir != nullptr) ? dir : "/mnt/UDISK/roms";
 
     const char * vol = getenv("EMP_GBA_VOLUME");
     _volume = (vol != nullptr) ? atoi(vol) : 100;
