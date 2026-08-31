@@ -424,6 +424,15 @@ static void audio_deinit(audio_ctx_t* ctx)
 {
     if (ctx->running) {
         ctx->running = false;
+        /* A blocking snd_pcm_writei() can sit forever waiting for the
+         * hardware to consume the buffer (e.g. a codec that is not draining
+         * on some boards). Without unblocking it, pthread_join() below
+         * hangs indefinitely and freezes the UI when the app exits (long
+         * SELECT press). snd_pcm_drop() aborts the running I/O so writei
+         * returns immediately (EPIPE) and the thread can exit. */
+        if (ctx->pcm_handle) {
+            snd_pcm_drop(ctx->pcm_handle);
+        }
         pthread_join(ctx->thread_id, NULL);
     }
 
