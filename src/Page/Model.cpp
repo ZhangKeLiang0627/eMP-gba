@@ -17,8 +17,11 @@ Model::Model(std::function<void(void)> exitCb)
     _exitFlag = false;
     _exitCb = exitCb;
 
+    /* ROM directory convention: eMP-gba owns /mnt/UDISK/roms/gba
+     * (eMP-nes uses the sibling /mnt/UDISK/roms/nes - GBA/NES never mix).
+     * EMP_GBA_ROM_DIR overrides for non-default layouts. */
     const char * dir = getenv("EMP_GBA_ROM_DIR");
-    _romDir = (dir != nullptr) ? dir : "/mnt/UDISK/roms";
+    _romDir = (dir != nullptr) ? dir : "/mnt/UDISK/roms/gba";
 
     const char * vol = getenv("EMP_GBA_VOLUME");
     _volume = (vol != nullptr) ? atoi(vol) : 100;
